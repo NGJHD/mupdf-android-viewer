@@ -60,6 +60,14 @@ public class PageView extends ViewGroup {
 
 	private static final int HIGHLIGHT_COLOR = 0x80cc6600;
 	private static final int LINK_COLOR = 0x800066cc;
+	private static final int SELECTION_COLOR = 0x8033b5e5;
+	private static final int SELECTION_HANDLE_COLOR = 0xff0099cc;
+	private static final float HANDLE_RADIUS_DP = 9;
+	private static final float HANDLE_TOUCH_RADIUS_DP = 26;
+
+	public static final int HANDLE_NONE = 0;
+	public static final int HANDLE_START = 1;
+	public static final int HANDLE_END = 2;
 	private static final int BOX_COLOR = 0xFF4444FF;
 	private static final int BACKGROUND_COLOR = 0xFFFFFFFF;
 	private static final int PROGRESS_DIALOG_DELAY = 200;
@@ -87,6 +95,11 @@ public class PageView extends ViewGroup {
 	private       CancellableAsyncTask<Void, Boolean> mDrawPatch;
 
 	private       Quad      mSearchBoxes[][];
+	private       Quad      mSelectionQuads[];
+	private       PointF    mSelectStart;
+	private       PointF    mSelectEnd;
+	private       float     mHandleGrabDx;
+	private       float     mHandleGrabDy;
 	protected     Link      mLinks[];
 	private       View      mSearchView;
 	private       boolean   mIsBlank;
@@ -146,6 +159,9 @@ public class PageView extends ViewGroup {
 		mPatchArea = null;
 
 		mSearchBoxes = null;
+		mSelectionQuads = null;
+		mSelectStart = null;
+		mSelectEnd = null;
 		mLinks = null;
 
 		clearRenderError();
@@ -347,6 +363,33 @@ public class PageView extends ViewGroup {
 						}
 					}
 
+					if (!mIsBlank && mSelectionQuads != null) {
+						paint.setColor(SELECTION_COLOR);
+						for (Quad q : mSelectionQuads) {
+							Path path = new Path();
+							path.moveTo(q.ul_x * scale, q.ul_y * scale);
+							path.lineTo(q.ll_x * scale, q.ll_y * scale);
+							path.lineTo(q.lr_x * scale, q.lr_y * scale);
+							path.lineTo(q.ur_x * scale, q.ur_y * scale);
+							path.close();
+							canvas.drawPath(path, paint);
+						}
+
+						/* Grab handles hanging below each end of the selection. */
+						PointF a = handlePoint(HANDLE_START);
+						PointF b = handlePoint(HANDLE_END);
+						if (a != null && b != null) {
+							float r = handleRadius();
+							paint.setColor(SELECTION_HANDLE_COLOR);
+							paint.setAntiAlias(true);
+							paint.setStrokeWidth(r / 4);
+							canvas.drawLine(a.x, a.y, a.x, a.y + r, paint);
+							canvas.drawLine(b.x, b.y, b.x, b.y + r, paint);
+							canvas.drawCircle(a.x, a.y + r, r, paint);
+							canvas.drawCircle(b.x, b.y + r, r, paint);
+						}
+					}
+
 					if (!mIsBlank && mLinks != null && mHighlightLinks) {
 						paint.setColor(LINK_COLOR);
 						for (Link link : mLinks)
@@ -364,6 +407,139 @@ public class PageView extends ViewGroup {
 
 	public void setSearchBoxes(Quad searchBoxes[][]) {
 		mSearchBoxes = searchBoxes;
+		if (mSearchView != null)
+			mSearchView.invalidate();
+	}
+
+	/* Page coordinates for a point given in this view's coordinates. */
+	private PointF viewToDoc(float x, float y) {
+		float scale = mSourceScale*(float)getWidth()/(float)mSize.x;
+		return new PointF((x - getLeft())/scale, (y - getTop())/scale);
+	}
+
+	/* Begin a selection at a long press, snapped to the word under the
+	 * finger. Returns false when there is no text to select there. */
+	public boolean startSelection(float x, float y) {
+		PointF p = viewToDoc(x, y);
+		PointF[] word = mCore.snapWord(mPageNumber, p);
+		if (word == null)
+			return false;
+		mSelectStart = word[0];
+		mSelectEnd = word[1];
+		updateSelection();
+		return hasSelection();
+	}
+
+	/* Drag the loose end of the selection to follow the finger. */
+	public void extendSelection(float x, float y) {
+		if (mSelectStart == null)
+			return;
+		mSelectEnd = viewToDoc(x, y);
+		updateSelection();
+	}
+
+	private void updateSelection() {
+		mSelectionQuads = mCore.highlightSelection(mPageNumber, mSelectStart, mSelectEnd);
+		if (mSearchView != null)
+			mSearchView.invalidate();
+	}
+
+	private float handleRadius() {
+		return HANDLE_RADIUS_DP * getResources().getDisplayMetrics().density;
+	}
+
+	/* Where a selection handle sits, in this view's coordinates: under the
+	 * outer bottom corner of the first or last quad. */
+	private PointF handlePoint(int which) {
+		if (!hasSelection() || mSize == null || getWidth() == 0)
+			return null;
+		float scale = mSourceScale*(float)getWidth()/(float)mSize.x;
+		if (which == HANDLE_START) {
+			Quad q = mSelectionQuads[0];
+			return new PointF(q.ll_x * scale, q.ll_y * scale);
+		}
+		Quad q = mSelectionQuads[mSelectionQuads.length - 1];
+		return new PointF(q.lr_x * scale, q.lr_y * scale);
+	}
+
+	private PointF docToView(PointF p) {
+		float scale = mSourceScale*(float)getWidth()/(float)mSize.x;
+		return new PointF(p.x * scale, p.y * scale);
+	}
+
+	/* Which handle, if any, a touch has landed on. */
+	public int hitSelectionHandle(float x, float y) {
+		PointF a = handlePoint(HANDLE_START);
+		PointF b = handlePoint(HANDLE_END);
+		if (a == null || b == null)
+			return HANDLE_NONE;
+
+		float r = handleRadius();
+		float slop = HANDLE_TOUCH_RADIUS_DP * getResources().getDisplayMetrics().density;
+		float vx = x - getLeft();
+		float vy = y - getTop();
+
+		float da = (float)Math.hypot(vx - a.x, vy - (a.y + r));
+		float db = (float)Math.hypot(vx - b.x, vy - (b.y + r));
+		if (da > slop && db > slop)
+			return HANDLE_NONE;
+
+		int which = da <= db ? HANDLE_START : HANDLE_END;
+
+		/* The handle is drawn below the line and can be grabbed from a good
+		 * way off, so remember where the finger landed relative to the end of
+		 * the selection. Without this the end would jump to the fingertip as
+		 * soon as it was touched. */
+		PointF end = docToView(which == HANDLE_START ? mSelectStart : mSelectEnd);
+		mHandleGrabDx = end.x - vx;
+		mHandleGrabDy = end.y - vy;
+		return which;
+	}
+
+	/* Drag one end of the selection. A drag that would collapse the selection
+	 * past the other end is ignored, so the handles never disappear from
+	 * under the finger. */
+	public void moveSelectionHandle(int which, float x, float y) {
+		if (mSelectStart == null || mSelectEnd == null)
+			return;
+
+		PointF oldStart = mSelectStart;
+		PointF oldEnd = mSelectEnd;
+		Quad oldQuads[] = mSelectionQuads;
+
+		/* Move by however far the finger has moved, not to where it is. */
+		PointF p = viewToDoc(x + mHandleGrabDx, y + mHandleGrabDy);
+		if (which == HANDLE_START)
+			mSelectStart = p;
+		else
+			mSelectEnd = p;
+		updateSelection();
+
+		if (!hasSelection()) {
+			mSelectStart = oldStart;
+			mSelectEnd = oldEnd;
+			mSelectionQuads = oldQuads;
+			if (mSearchView != null)
+				mSearchView.invalidate();
+		}
+	}
+
+	public boolean hasSelection() {
+		return mSelectionQuads != null && mSelectionQuads.length > 0;
+	}
+
+	public String getSelectedText() {
+		if (mSelectStart == null)
+			return null;
+		return mCore.copySelection(mPageNumber, mSelectStart, mSelectEnd);
+	}
+
+	public void clearSelection() {
+		if (mSelectStart == null && mSelectionQuads == null)
+			return;
+		mSelectStart = null;
+		mSelectEnd = null;
+		mSelectionQuads = null;
 		if (mSearchView != null)
 			mSearchView.invalidate();
 	}
@@ -592,8 +768,15 @@ public class PageView extends ViewGroup {
 
 		if (mLinks != null)
 			for (Link l: mLinks)
-				if (l.getBounds().contains(docRelX, docRelY))
+				if (l.getBounds().contains(docRelX, docRelY)) {
+					/* Distinguish 'followed an external link' from 'hit nothing',
+					 * so the caller does not also treat the tap as a page turn. */
+					if (l.isExternal()) {
+						hitLink(l);
+						return -1;
+					}
 					return hitLink(l);
+				}
 		return 0;
 	}
 

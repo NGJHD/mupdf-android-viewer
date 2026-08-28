@@ -7,10 +7,12 @@ import com.artifex.mupdf.fitz.Link;
 import com.artifex.mupdf.fitz.Matrix;
 import com.artifex.mupdf.fitz.Outline;
 import com.artifex.mupdf.fitz.Page;
+import com.artifex.mupdf.fitz.Point;
 import com.artifex.mupdf.fitz.Quad;
 import com.artifex.mupdf.fitz.Rect;
 import com.artifex.mupdf.fitz.RectI;
 import com.artifex.mupdf.fitz.SeekableInputStream;
+import com.artifex.mupdf.fitz.StructuredText;
 import com.artifex.mupdf.fitz.android.AndroidDrawDevice;
 
 import android.content.Context;
@@ -37,6 +39,7 @@ public class MuPDFCore
 	private float pageWidth;
 	private float pageHeight;
 	private DisplayList displayList;
+	private StructuredText pageText;
 
 	/* Default to "A Format" pocket book size. */
 	private int layoutW = 312;
@@ -108,6 +111,9 @@ public class MuPDFCore
 			if (displayList != null)
 				displayList.destroy();
 			displayList = null;
+			if (pageText != null)
+				pageText.destroy();
+			pageText = null;
 			page = null;
 			pageWidth = 0;
 			pageHeight = 0;
@@ -133,6 +139,9 @@ public class MuPDFCore
 		if (displayList != null)
 			displayList.destroy();
 		displayList = null;
+		if (pageText != null)
+			pageText.destroy();
+		pageText = null;
 		if (page != null)
 			page.destroy();
 		page = null;
@@ -194,6 +203,89 @@ public class MuPDFCore
 	public synchronized Quad[][] searchPage(int pageNum, String text) {
 		gotoPage(pageNum);
 		return page.search(text);
+	}
+
+	/* Analysing a page into text is expensive, so hang on to the result for
+	 * the page we are on: dragging a selection asks for it on every move. */
+	private StructuredText getPageText(int pageNum) {
+		gotoPage(pageNum);
+		if (pageText == null && page != null)
+			pageText = page.toStructuredText();
+		return pageText;
+	}
+
+	/* The two ends of the word under a point, or null when the point is not
+	 * on a line of text. We walk the text ourselves rather than ask for a
+	 * snapped selection, which wants a dragged range and does something
+	 * unhelpful when handed the same point twice. */
+	public synchronized PointF[] snapWord(int pageNum, PointF p) {
+		StructuredText text = getPageText(pageNum);
+		if (text == null)
+			return null;
+
+		StructuredText.TextBlock blocks[] = text.getBlocks();
+		if (blocks == null)
+			return null;
+
+		for (StructuredText.TextBlock block : blocks) {
+			if (block == null || block.lines == null)
+				continue;
+			for (StructuredText.TextLine line : block.lines) {
+				if (line == null || line.chars == null || line.chars.length == 0)
+					continue;
+				if (line.bbox == null || !line.bbox.contains(p.x, p.y))
+					continue;
+
+				/* The nearest character on the line, so a press between two
+				 * glyphs still picks a word. */
+				StructuredText.TextChar chars[] = line.chars;
+				int hit = -1;
+				float best = Float.MAX_VALUE;
+				for (int i = 0; i < chars.length; i++) {
+					if (chars[i] == null || chars[i].quad == null)
+						continue;
+					Quad q = chars[i].quad;
+					float dx = (q.ul_x + q.ur_x) / 2 - p.x;
+					float dy = (q.ul_y + q.ll_y) / 2 - p.y;
+					float d = dx * dx + dy * dy;
+					if (d < best) {
+						best = d;
+						hit = i;
+					}
+				}
+				if (hit < 0 || chars[hit].isWhitespace())
+					continue;
+
+				int from = hit, to = hit;
+				while (from > 0 && chars[from-1] != null && !chars[from-1].isWhitespace())
+					from--;
+				while (to+1 < chars.length && chars[to+1] != null && !chars[to+1].isWhitespace())
+					to++;
+
+				Quad a = chars[from].quad;
+				Quad b = chars[to].quad;
+				return new PointF[] {
+					new PointF(a.ul_x, (a.ul_y + a.ll_y) / 2),
+					new PointF(b.ur_x, (b.ur_y + b.lr_y) / 2)
+				};
+			}
+		}
+		return null;
+	}
+
+	/* The quads to paint for a selection running between two points. */
+	public synchronized Quad[] highlightSelection(int pageNum, PointF a, PointF b) {
+		StructuredText text = getPageText(pageNum);
+		if (text == null)
+			return null;
+		return text.highlight(new Point(a.x, a.y), new Point(b.x, b.y));
+	}
+
+	public synchronized String copySelection(int pageNum, PointF a, PointF b) {
+		StructuredText text = getPageText(pageNum);
+		if (text == null)
+			return null;
+		return text.copy(new Point(a.x, a.y), new Point(b.x, b.y));
 	}
 
 	public synchronized boolean hasOutline() {

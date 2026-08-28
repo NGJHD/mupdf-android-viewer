@@ -5,7 +5,10 @@ import com.artifex.mupdf.fitz.SeekableInputStream;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.DialogInterface.OnCancelListener;
 import android.content.DialogInterface;
@@ -21,14 +24,18 @@ import android.graphics.drawable.ShapeDrawable;
 import android.graphics.drawable.shapes.RectShape;
 import android.net.Uri;
 import android.os.Build;
+import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
+import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.text.method.PasswordTransformationMethod;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.ActionMode;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem.OnMenuItemClickListener;
@@ -56,7 +63,10 @@ import androidx.core.content.ContextCompat;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Locale;
@@ -71,6 +81,8 @@ public class DocumentActivity extends Activity
 	private final float EXCLUSION_HEIGHT_FACTOR = 2.0f;
 
 	private final int    OUTLINE_REQUEST=0;
+	private final int    SAVE_PERMISSION_REQUEST=1;
+	private final int    COPY_MENU_ITEM=1;
 	private MuPDFCore    core;
 	private String       mDocTitle;
 	private String       mDocKey;
@@ -81,15 +93,17 @@ public class DocumentActivity extends Activity
 	private TextView     mDocNameView;
 	private SeekBar      mPageSlider;
 	private int          mPageSliderRes;
+	private boolean      mPageSliderTracking;
 	private TextView     mPageNumberView;
 	private ImageButton  mSearchButton;
 	private ImageButton  mOutlineButton;
+	private ImageButton  mShareButton;
 	private ViewAnimator mTopBarSwitcher;
 	private LinearLayout mTopBar;
 	private LinearLayout mActionBar;
 	private LinearLayout mSearchBar;
 	private LinearLayout mBottomBar;
-	private ImageButton  mLinkButton;
+	private ImageButton  mDownloadButton;
 	private TopBarMode   mTopBarMode = TopBarMode.Main;
 	private ImageButton  mSearchBack;
 	private ImageButton  mSearchFwd;
@@ -97,7 +111,7 @@ public class DocumentActivity extends Activity
 	private EditText     mSearchText;
 	private SearchTask   mSearchTask;
 	private AlertDialog.Builder mAlertBuilder;
-	private boolean    mLinkHighlight = false;
+	private ActionMode mSelectionActionMode;
 	private final Handler mHandler = new Handler();
 	private boolean mAlertsActive= false;
 	private AlertDialog mAlertDialog;
@@ -211,7 +225,7 @@ public class DocumentActivity extends Activity
 		super.onCreate(savedInstanceState);
 
 		requestWindowFeature(Window.FEATURE_NO_TITLE);
-		getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+		applySystemBars();
 
 		DisplayMetrics metrics = new DisplayMetrics();
 		getWindowManager().getDefaultDisplay().getMetrics(metrics);
@@ -360,6 +374,29 @@ public class DocumentActivity extends Activity
 		mDocView.setDisplayedViewIndex(loc);
 	}
 
+	/* The system bars follow the toolbars: on screen together with them, so the
+	 * page slider sits above the navigation bar, and gone when the document has
+	 * the screen to itself. */
+	protected void applySystemBars() {
+		if (mButtonsVisible)
+			Fullscreen.showSystemBars(getWindow());
+		else
+			Fullscreen.hideSystemBars(getWindow());
+	}
+
+	@Override
+	public void onAttachedToWindow() {
+		super.onAttachedToWindow();
+		applySystemBars();
+	}
+
+	@Override
+	public void onWindowFocusChanged(boolean hasFocus) {
+		super.onWindowFocusChanged(hasFocus);
+		if (hasFocus)
+			applySystemBars();
+	}
+
 	protected void applyInsets(WindowInsets windowInsets) {
 		systemInsets = Insets.NONE;
 		Insets systemBarInsets = windowInsets.getInsets(WindowInsets.Type.systemBars());
@@ -384,7 +421,8 @@ public class DocumentActivity extends Activity
 
 				mPageNumberView.setText(String.format(Locale.ROOT, "%d / %d", i + 1, core.countPages()));
 				mPageSlider.setMax((core.countPages() - 1) * mPageSliderRes);
-				mPageSlider.setProgress(i * mPageSliderRes);
+				if (!mPageSliderTracking)
+					mPageSlider.setProgress(i * mPageSliderRes);
 				super.onMoveToChild(i);
 			}
 
@@ -396,6 +434,20 @@ public class DocumentActivity extends Activity
 					if (mTopBarMode == TopBarMode.Main)
 						hideButtons();
 				}
+			}
+
+			@Override
+			protected void onSelectionStarted() {
+				startSelectionActionMode();
+			}
+
+			@Override
+			protected void onSelectionCleared() {
+				/* Null the field first: finishing the mode calls back in here. */
+				ActionMode mode = mSelectionActionMode;
+				mSelectionActionMode = null;
+				if (mode != null)
+					mode.finish();
 			}
 
 			@Override
@@ -446,15 +498,24 @@ public class DocumentActivity extends Activity
 		// Activate the seekbar
 		mPageSlider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
 			public void onStopTrackingTouch(SeekBar seekBar) {
-				mDocView.pushHistory();
+				mPageSliderTracking = false;
 				mDocView.setDisplayedViewIndex((seekBar.getProgress()+mPageSliderRes/2)/mPageSliderRes);
 			}
 
-			public void onStartTrackingTouch(SeekBar seekBar) {}
+			public void onStartTrackingTouch(SeekBar seekBar) {
+				/* Remember where we came from once, not once per page we scrub past. */
+				mDocView.pushHistory();
+				mPageSliderTracking = true;
+			}
 
 			public void onProgressChanged(SeekBar seekBar, int progress,
 					boolean fromUser) {
-				updatePageNumView((progress+mPageSliderRes/2)/mPageSliderRes);
+				int page = (progress+mPageSliderRes/2)/mPageSliderRes;
+				updatePageNumView(page);
+				/* Follow the slider as it is dragged rather than waiting for the
+				 * finger to lift. */
+				if (fromUser && page != mDocView.getDisplayedViewIndex())
+					mDocView.setDisplayedViewIndex(page);
 			}
 		});
 
@@ -526,11 +587,6 @@ public class DocumentActivity extends Activity
 			}
 		});
 
-		mLinkButton.setOnClickListener(new View.OnClickListener() {
-			public void onClick(View v) {
-				setLinkHighlight(!mLinkHighlight);
-			}
-		});
 
 		if (core.isReflowable()) {
 			mLayoutButton.setVisibility(View.VISIBLE);
@@ -586,6 +642,30 @@ public class DocumentActivity extends Activity
 			});
 		} else {
 			mOutlineButton.setVisibility(View.GONE);
+		}
+
+		/* We can only hand a content: uri on to another app; anything else
+		 * (a file: uri, or a document we were given as a stream) is not ours
+		 * to share. */
+		Uri shareUri = getIntent().getData();
+		if (shareUri != null && ContentResolver.SCHEME_CONTENT.equals(shareUri.getScheme())) {
+			mShareButton.setOnClickListener(new View.OnClickListener() {
+				public void onClick(View v) {
+					shareDocument();
+				}
+			});
+		} else {
+			mShareButton.setVisibility(View.GONE);
+		}
+
+		if (shareUri != null && ContentResolver.SCHEME_CONTENT.equals(shareUri.getScheme())) {
+			mDownloadButton.setOnClickListener(new View.OnClickListener() {
+				public void onClick(View v) {
+					saveDocumentToDownloads();
+				}
+			});
+		} else {
+			mDownloadButton.setVisibility(View.GONE);
 		}
 
 		// Reenstate last state if it was recorded
@@ -703,19 +783,13 @@ public class DocumentActivity extends Activity
 		button.setColorFilter(enabled ? Color.argb(255, 255, 255, 255) : Color.argb(255, 128, 128, 128));
 	}
 
-	private void setLinkHighlight(boolean highlight) {
-		mLinkHighlight = highlight;
-		// LINK_COLOR tint
-		mLinkButton.setColorFilter(highlight ? Color.argb(0xFF, 0x00, 0x66, 0xCC) : Color.argb(0xFF, 255, 255, 255));
-		// Inform pages of the change.
-		mDocView.setLinksEnabled(highlight);
-	}
 
 	private void showButtons() {
 		if (core == null)
 			return;
 		if (!mButtonsVisible) {
 			mButtonsVisible = true;
+			applySystemBars();
 			// Update page number text and slider
 			int index = mDocView.getDisplayedViewIndex();
 			updatePageNumView(index);
@@ -755,6 +829,7 @@ public class DocumentActivity extends Activity
 	private void hideButtons() {
 		if (mButtonsVisible) {
 			mButtonsVisible = false;
+			applySystemBars();
 			hideKeyboard();
 
 			Animation anim = new TranslateAnimation(0, 0, 0, -(mTopBarSwitcher.getHeight() + systemInsets.top));
@@ -813,6 +888,226 @@ public class DocumentActivity extends Activity
 		mPageNumberView.setText(String.format(Locale.ROOT, "%d / %d", index + 1, core.countPages()));
 	}
 
+	/* A floating action mode hovers over the page. The classic one is a bar
+	 * that shrinks the content, which relays out the document under the
+	 * finger that is still drawing the selection. */
+	private void startSelectionActionMode() {
+		if (mSelectionActionMode != null)
+			return;
+		if (Build.VERSION.SDK_INT >= 23)
+			mSelectionActionMode = startActionMode(new FloatingSelectionCallback(),
+				ActionMode.TYPE_FLOATING);
+		else
+			mSelectionActionMode = startActionMode(new SelectionCallback());
+	}
+
+	private boolean createSelectionMenu(Menu menu) {
+		menu.add(0, COPY_MENU_ITEM, 0, R.string.copy)
+			.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+		return true;
+	}
+
+	private boolean selectionItemClicked(ActionMode mode, MenuItem item) {
+		if (item.getItemId() == COPY_MENU_ITEM) {
+			copySelectionToClipboard();
+			mode.finish();
+			return true;
+		}
+		return false;
+	}
+
+	private void selectionModeDestroyed() {
+		mSelectionActionMode = null;
+		mDocView.clearSelection();
+	}
+
+	private class SelectionCallback implements ActionMode.Callback {
+		public boolean onCreateActionMode(ActionMode mode, Menu menu) {
+			return createSelectionMenu(menu);
+		}
+		public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
+			return false;
+		}
+		public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
+			return selectionItemClicked(mode, item);
+		}
+		public void onDestroyActionMode(ActionMode mode) {
+			selectionModeDestroyed();
+		}
+	}
+
+	/* Only ever instantiated on API 23 and up, where Callback2 exists. */
+	private class FloatingSelectionCallback extends ActionMode.Callback2 {
+		public boolean onCreateActionMode(ActionMode mode, Menu menu) {
+			return createSelectionMenu(menu);
+		}
+		public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
+			return false;
+		}
+		public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
+			return selectionItemClicked(mode, item);
+		}
+		public void onDestroyActionMode(ActionMode mode) {
+			selectionModeDestroyed();
+		}
+	}
+
+	private void copySelectionToClipboard() {
+		String text = mDocView.getSelectedText();
+		if (text == null || text.length() == 0) {
+			Toast.makeText(this, R.string.no_text_selected, Toast.LENGTH_SHORT).show();
+			return;
+		}
+		ClipboardManager clipboard = (ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
+		clipboard.setPrimaryClip(ClipData.newPlainText(mDocTitle, text));
+		Toast.makeText(this, R.string.text_copied, Toast.LENGTH_SHORT).show();
+	}
+
+	/* Drop a copy of the document into the shared Downloads folder. */
+	private void saveDocumentToDownloads() {
+		final Uri uri = getIntent().getData();
+		if (uri == null)
+			return;
+
+		/* Before scoped storage we have to ask before writing to Downloads. */
+		if (Build.VERSION.SDK_INT < 29 && ContextCompat.checkSelfPermission(this,
+				Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+			ActivityCompat.requestPermissions(this,
+				new String[] { Manifest.permission.WRITE_EXTERNAL_STORAGE }, SAVE_PERMISSION_REQUEST);
+			return;
+		}
+
+		final String name = mDocTitle != null ? mDocTitle : "document.pdf";
+
+		/* The document can be tens of megabytes, so copy it off the main thread. */
+		new AsyncTask<Void, Void, String>() {
+			@Override
+			protected String doInBackground(Void... params) {
+				return copyToDownloads(uri, name);
+			}
+
+			@Override
+			protected void onPostExecute(String error) {
+				if (error == null)
+					Toast.makeText(DocumentActivity.this,
+						getString(R.string.saved_to_downloads, name), Toast.LENGTH_LONG).show();
+				else
+					Toast.makeText(DocumentActivity.this, error, Toast.LENGTH_LONG).show();
+			}
+		}.execute();
+	}
+
+	/* Returns null when the copy worked, or a message describing what failed. */
+	private String copyToDownloads(Uri uri, String name) {
+		InputStream in = null;
+		OutputStream out = null;
+		Uri pending = null;
+		try {
+			in = getContentResolver().openInputStream(uri);
+			if (in == null)
+				return getString(R.string.cannot_save_document);
+
+			if (Build.VERSION.SDK_INT >= 29) {
+				ContentValues values = new ContentValues();
+				values.put(MediaStore.Downloads.DISPLAY_NAME, name);
+				String mimetype = getContentResolver().getType(uri);
+				if (mimetype != null)
+					values.put(MediaStore.Downloads.MIME_TYPE, mimetype);
+				values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+				values.put(MediaStore.Downloads.IS_PENDING, 1);
+				pending = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+				if (pending == null)
+					return getString(R.string.cannot_save_document);
+				out = getContentResolver().openOutputStream(pending);
+			} else {
+				File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+				dir.mkdirs();
+				out = new FileOutputStream(uniqueFile(dir, name));
+			}
+			if (out == null)
+				return getString(R.string.cannot_save_document);
+
+			byte[] buf = new byte[65536];
+			int n;
+			while ((n = in.read(buf)) > 0)
+				out.write(buf, 0, n);
+			out.flush();
+
+			if (pending != null) {
+				out.close();
+				out = null;
+				ContentValues values = new ContentValues();
+				values.put(MediaStore.Downloads.IS_PENDING, 0);
+				getContentResolver().update(pending, values, null, null);
+				pending = null;
+			}
+			return null;
+		} catch (Exception x) {
+			Log.e(APP, "Error saving document: " + x);
+			/* Do not leave a half written entry behind. */
+			if (pending != null)
+				getContentResolver().delete(pending, null, null);
+			return x.getMessage() != null ? x.getMessage() : getString(R.string.cannot_save_document);
+		} finally {
+			try { if (in != null) in.close(); } catch (IOException x) { /* ignore */ }
+			try { if (out != null) out.close(); } catch (IOException x) { /* ignore */ }
+		}
+	}
+
+	private File uniqueFile(File dir, String name) {
+		File file = new File(dir, name);
+		if (!file.exists())
+			return file;
+		String base = name, ext = "";
+		int dot = name.lastIndexOf('.');
+		if (dot > 0) {
+			base = name.substring(0, dot);
+			ext = name.substring(dot);
+		}
+		for (int i = 1; ; i++) {
+			file = new File(dir, base + " (" + i + ")" + ext);
+			if (!file.exists())
+				return file;
+		}
+	}
+
+	@Override
+	public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+		super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+		if (requestCode == SAVE_PERMISSION_REQUEST && grantResults.length > 0
+				&& grantResults[0] == PackageManager.PERMISSION_GRANTED)
+			saveDocumentToDownloads();
+	}
+
+	/* Hand the document off to whatever the user picks from the share sheet:
+	 * mail, a messenger, cloud storage, and so on. The receiving app gets a
+	 * temporary read grant for our uri, so nothing has to be copied. */
+	private void shareDocument() {
+		Uri uri = getIntent().getData();
+		if (uri == null)
+			return;
+
+		String mimetype = getIntent().getType();
+		if (mimetype == null)
+			mimetype = getContentResolver().getType(uri);
+		if (mimetype == null)
+			mimetype = "application/octet-stream";
+
+		Intent intent = new Intent(Intent.ACTION_SEND);
+		intent.setType(mimetype);
+		intent.putExtra(Intent.EXTRA_STREAM, uri);
+		if (mDocTitle != null)
+			intent.putExtra(Intent.EXTRA_SUBJECT, mDocTitle);
+		intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+		try {
+			startActivity(Intent.createChooser(intent, getString(R.string.share_document)));
+		} catch (Exception x) {
+			Log.e(APP, "Error sharing document: " + x);
+			Toast.makeText(this, R.string.not_supported, Toast.LENGTH_SHORT).show();
+		}
+	}
+
 	private void makeButtonsView() {
 		mButtonsView = getLayoutInflater().inflate(R.layout.document_activity, null);
 		mDocNameView = (TextView)mButtonsView.findViewById(R.id.docNameText);
@@ -820,6 +1115,7 @@ public class DocumentActivity extends Activity
 		mPageNumberView = (TextView)mButtonsView.findViewById(R.id.pageNumber);
 		mSearchButton = (ImageButton)mButtonsView.findViewById(R.id.searchButton);
 		mOutlineButton = (ImageButton)mButtonsView.findViewById(R.id.outlineButton);
+		mShareButton = (ImageButton)mButtonsView.findViewById(R.id.shareButton);
 		mTopBarSwitcher = (ViewAnimator)mButtonsView.findViewById(R.id.switcher);
 		mTopBar = (LinearLayout)mButtonsView.findViewById(R.id.topBar);
 		mActionBar = (LinearLayout)mButtonsView.findViewById(R.id.actionBar);
@@ -829,7 +1125,7 @@ public class DocumentActivity extends Activity
 		mSearchFwd = (ImageButton)mButtonsView.findViewById(R.id.searchForward);
 		mSearchClose = (ImageButton)mButtonsView.findViewById(R.id.searchClose);
 		mSearchText = (EditText)mButtonsView.findViewById(R.id.searchText);
-		mLinkButton = (ImageButton)mButtonsView.findViewById(R.id.linkButton);
+		mDownloadButton = (ImageButton)mButtonsView.findViewById(R.id.downloadButton);
 		mLayoutButton = mButtonsView.findViewById(R.id.layoutButton);
 		mTopBarSwitcher.setVisibility(View.INVISIBLE);
 		mPageNumberView.setVisibility(View.INVISIBLE);

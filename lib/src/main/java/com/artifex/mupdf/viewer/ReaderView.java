@@ -25,12 +25,16 @@ import android.widget.Scroller;
 
 public class ReaderView
 		extends AdapterView<Adapter>
-		implements GestureDetector.OnGestureListener, ScaleGestureDetector.OnScaleGestureListener, Runnable {
+		implements GestureDetector.OnGestureListener, GestureDetector.OnDoubleTapListener,
+			ScaleGestureDetector.OnScaleGestureListener, Runnable {
 	private final String APP = "MuPDF";
 
 	private Context mContext;
 	private boolean mLinksEnabled = false;
 	private boolean tapDisabled = false;
+	private boolean mSelecting = false;
+	private boolean mFitWidth = false;
+	private int mDraggingHandle = PageView.HANDLE_NONE;
 	private int tapPageMargin;
 
 	private static final int MOVING_DIAGONALLY = 0;
@@ -45,7 +49,7 @@ public class ReaderView
 	private static final float MIN_SCALE        = 1.0f;
 	private static final float MAX_SCALE        = 64.0f;
 
-	private static final boolean HORIZONTAL_SCROLLING = true;
+	private static final boolean HORIZONTAL_SCROLLING = false;
 
 	private PageAdapter           mAdapter;
 	protected int               mCurrent;    // Adapter's index for the current view
@@ -95,6 +99,7 @@ public class ReaderView
 	{
 		mContext = context;
 		mGestureDetector = new GestureDetector(context, this);
+		mGestureDetector.setOnDoubleTapListener(this);
 		mScaleGestureDetector = new ScaleGestureDetector(context, this);
 		mScroller = new Scroller(context);
 		mStepper = new Stepper(this, this);
@@ -181,6 +186,21 @@ public class ReaderView
 		if (advance > max)
 			advance = max;
 		return advance;
+	}
+
+	public boolean isFitWidth() {
+		return mFitWidth;
+	}
+
+	/* Swap between fitting the page width and fitting the whole page. Any
+	 * pinch zoom is dropped so the new fit takes effect immediately, whatever
+	 * the page was showing before. */
+	public void toggleFitMode() {
+		mFitWidth = !mFitWidth;
+		mScale = 1.0f;
+		mXScroll = mYScroll = 0;
+		mResetLayout = true;
+		requestLayout();
 	}
 
 	public void smartMoveForwards() {
@@ -470,11 +490,27 @@ public class ReaderView
 		return true;
 	}
 
-	public void onLongPress(MotionEvent e) { }
+	public void onLongPress(MotionEvent e) {
+		PageView pageView = (PageView)getDisplayedView();
+		if (pageView == null)
+			return;
+		clearSelection();
+		if (pageView.startSelection(e.getX(), e.getY())) {
+			mSelecting = true;
+			/* The release that ends the drag must not also count as a tap. */
+			tapDisabled = true;
+			onSelectionStarted();
+		}
+	}
 
 	public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX,
 			float distanceY) {
 		PageView pageView = (PageView)getDisplayedView();
+		if (mSelecting) {
+			if (pageView != null)
+				pageView.extendSelection(e2.getX(), e2.getY());
+			return true;
+		}
 		if (!tapDisabled)
 			onDocMotion();
 		if (!mScaling) {
@@ -535,19 +571,54 @@ public class ReaderView
 
 	@Override
 	public boolean onTouchEvent(MotionEvent event) {
-		if ((event.getAction() & event.getActionMasked()) == MotionEvent.ACTION_DOWN)
+		int action = event.getAction() & MotionEvent.ACTION_MASK;
+
+		if (action == MotionEvent.ACTION_DOWN)
 		{
 			tapDisabled = false;
+
+			/* Grabbing a selection handle takes over the whole gesture: no
+			 * panning, and the release must not count as a tap that would
+			 * dismiss the selection we are adjusting. */
+			PageView pageView = (PageView)getDisplayedView();
+			mDraggingHandle = pageView != null
+				? pageView.hitSelectionHandle(event.getX(), event.getY())
+				: PageView.HANDLE_NONE;
+			if (mDraggingHandle != PageView.HANDLE_NONE) {
+				tapDisabled = true;
+				return true;
+			}
+		}
+
+		if (mDraggingHandle != PageView.HANDLE_NONE) {
+			PageView pageView = (PageView)getDisplayedView();
+			if (action == MotionEvent.ACTION_MOVE) {
+				if (pageView != null)
+					pageView.moveSelectionHandle(mDraggingHandle, event.getX(), event.getY());
+			} else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+				mDraggingHandle = PageView.HANDLE_NONE;
+			}
+			return true;
+		}
+
+		/* The gesture detector stops reporting scrolls once it has fired a long
+		 * press, so drag the loose end of the selection from here instead. */
+		if (mSelecting && action == MotionEvent.ACTION_MOVE) {
+			PageView pageView = (PageView)getDisplayedView();
+			if (pageView != null)
+				pageView.extendSelection(event.getX(), event.getY());
+			return true;
 		}
 
 		mScaleGestureDetector.onTouchEvent(event);
 		mGestureDetector.onTouchEvent(event);
 
-		if ((event.getAction() & MotionEvent.ACTION_MASK) == MotionEvent.ACTION_DOWN) {
+		if (action == MotionEvent.ACTION_DOWN) {
 			mUserInteracting = true;
 		}
-		if ((event.getAction() & MotionEvent.ACTION_MASK) == MotionEvent.ACTION_UP) {
+		if (action == MotionEvent.ACTION_UP) {
 			mUserInteracting = false;
+			mSelecting = false;
 
 			View v = mChildViews.get(mCurrent);
 			if (v != null) {
@@ -815,8 +886,13 @@ public class ReaderView
 		// See what size the view wants to be
 		v.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
 
-		// Work out a scale that will fit it to this view
-		float scale = Math.min((float)getWidth()/(float)v.getMeasuredWidth(),
+		// Work out a scale that will fit it to this view: across the width
+		// alone, or within both dimensions so the whole page shows.
+		float scale;
+		if (mFitWidth)
+			scale = (float)getWidth()/(float)v.getMeasuredWidth();
+		else
+			scale = Math.min((float)getWidth()/(float)v.getMeasuredWidth(),
 					(float)getHeight()/(float)v.getMeasuredHeight());
 		// Use the fitting values scaled by our current scale factor
 		v.measure(View.MeasureSpec.EXACTLY | (int)(v.getMeasuredWidth()*scale*mScale),
@@ -906,6 +982,30 @@ public class ReaderView
 	}
 
 	protected void onTapMainDocArea() {}
+	protected void onSelectionStarted() {}
+	protected void onSelectionCleared() {}
+
+	public boolean hasSelection() {
+		PageView pageView = (PageView)getDisplayedView();
+		return pageView != null && pageView.hasSelection();
+	}
+
+	public String getSelectedText() {
+		PageView pageView = (PageView)getDisplayedView();
+		return pageView != null ? pageView.getSelectedText() : null;
+	}
+
+	/* Clear on every page we hold, not just the visible one, so a selection
+	 * left behind on another page does not linger. */
+	public void clearSelection() {
+		mSelecting = false;
+		for (int i = 0; i < mChildViews.size(); i++) {
+			View v = mChildViews.valueAt(i);
+			if (v instanceof PageView)
+				((PageView)v).clearSelection();
+		}
+		onSelectionCleared();
+	}
 	protected void onDocMotion() {}
 
 	public void setLinksEnabled(boolean b) {
@@ -915,17 +1015,41 @@ public class ReaderView
 	}
 
 	public boolean onSingleTapUp(MotionEvent e) {
-		Link link = null;
+		/* Handled in onSingleTapConfirmed, which waits long enough to know
+		 * this is not the first half of a double tap. */
+		return false;
+	}
+
+	public boolean onDoubleTapEvent(MotionEvent e) {
+		return false;
+	}
+
+	public boolean onDoubleTap(MotionEvent e) {
+		if (tapDisabled)
+			return false;
+		clearSelection();
+		toggleFitMode();
+		return true;
+	}
+
+	public boolean onSingleTapConfirmed(MotionEvent e) {
 		if (!tapDisabled) {
 			PageView pageView = (PageView) getDisplayedView();
-			if (mLinksEnabled && pageView != null) {
-				int page = pageView.hitLink(e.getX(), e.getY());
-				if (page > 0) {
-					pushHistory();
-					setDisplayedViewIndex(page);
-				} else {
-					onTapMainDocArea();
-				}
+
+			/* A tap anywhere dismisses a selection and does nothing else. */
+			if (hasSelection()) {
+				clearSelection();
+				return true;
+			}
+
+			/* Hyperlinks are always live, so try one before falling back to the
+			 * tap-to-turn-page margins. */
+			int link = pageView != null ? pageView.hitLink(e.getX(), e.getY()) : 0;
+			if (link > 0) {
+				pushHistory();
+				setDisplayedViewIndex(link);
+			} else if (link < 0) {
+				/* an external link was handed to another app */
 			} else if (e.getX() < tapPageMargin) {
 				smartMoveBackwards();
 			} else if (e.getX() > super.getWidth() - tapPageMargin) {

@@ -11,6 +11,42 @@ The application is a simple file chooser that shows a list of documents on the
 external storage on your device, and hands off the selected file to the viewer
 library.
 
+## Changes in this fork
+
+The viewer library has been reworked for comfortable reading on a phone:
+
+* The status and navigation bars are hidden while reading, so the document
+  has the whole screen. They reappear together with the toolbars when you
+  tap the page, and the page slider then sits above the navigation bar.
+
+* Pages are stacked vertically and scroll continuously from one to the next,
+  rather than paging sideways. Tapping the left or right edge of the screen
+  still moves by a page height.
+
+* Double tapping toggles between fitting the page width and fitting the
+  whole page. Any pinch zoom is dropped so the new fit applies immediately.
+
+* Text can be selected: press and hold to select a word, then drag either of
+  the handles to adjust the selection, and Copy to put it on the clipboard.
+  This only works where the document really contains text; pages whose
+  lettering is drawn as artwork have nothing to select.
+
+* Hyperlinks are always live. The link highlighting toggle that used to be
+  needed to follow them has been removed from the toolbar.
+
+* A share button hands the document to another app, and a download button
+  saves a copy of it to the phone's Downloads folder. Both are hidden for
+  documents that were not opened from a content: uri.
+
+* The toolbars and the page slider are half again as tall as they were, and
+  the slider is centred in its bar. Dragging the slider turns to that page
+  as you drag instead of waiting for you to let go.
+
+The application module has one build change: the ABI splits are restricted to
+the architectures the fitz library actually ships for. Without that the build
+also produced armeabi, mips, mips64 and riscv64 APKs which contain no native
+library at all and crash as soon as a document is opened.
+
 ## License
 
 MuPDF is Copyright (c) 2006-2017 Artifex Software, Inc.
