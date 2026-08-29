@@ -42,10 +42,12 @@ The viewer library has been reworked for comfortable reading on a phone:
   the slider is centred in its bar. Dragging the slider turns to that page
   as you drag instead of waiting for you to let go.
 
-The application module has one build change: the ABI splits are restricted to
-the architectures the fitz library actually ships for. Without that the build
-also produced armeabi, mips, mips64 and riscv64 APKs which contain no native
-library at all and crash as soon as a document is opened.
+The application module has one build change: the build produces a single
+arm64-v8a APK. That is the architecture of every modern Android phone, and it
+is the only artifact published on the GitHub releases page. The stock build
+also emitted armeabi, mips, mips64 and riscv64 APKs which contain no native
+library at all and crash as soon as a document is opened, along with 32 bit,
+emulator and universal APKs that nothing here needs.
 
 ## License
 
@@ -84,9 +86,9 @@ the gradle wrapper:
 
 	$ ./gradlew assembleRelease
 
-If all has gone well, you can now find the app APKs in app/build/outputs/apk/,
-with one APK for each ABI. There is also a universal APK which supports all
-ABIs.
+If all has gone well, you can now find the app APK in
+app/build/outputs/apk/release/app-arm64-v8a-release.apk. This fork builds only
+that one ABI; see "Changes in this fork" above if you need the others.
 
 The library component can be found in lib/build/outputs/aar/lib-release.aar.
 
