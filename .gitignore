@@ -10,3 +10,4 @@ tags
 mupdf-*-android-viewer.apk
 mupdf-*-android-viewer--app-release.aab
 app/gradle.properties
+HOW_TO_RELEASE.md
