@@ -23,13 +23,13 @@ android {
 	splits {
 		abi {
 			enable true
-			/* Only split on the ABIs the fitz native library actually ships.
-			 * Without this we also emit armeabi/mips/mips64/riscv64 APKs that
-			 * contain no libmupdf_java.so and crash as soon as a document is
-			 * opened. */
+			/* Only build the arm64-v8a APK. That is the ABI of every modern
+			 * Android phone, and it is the only artifact we publish on the
+			 * GitHub releases page. Building the other splits (or the
+			 * universal APK) just wastes time and clutters the release. */
 			reset()
-			include 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
-			universalApk true
+			include 'arm64-v8a'
+			universalApk false
 		}
 	}
 
