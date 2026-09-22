@@ -119,7 +119,8 @@ public class DocumentActivity extends Activity
 	private boolean mReturnToLibraryActivity = false;
 
 	protected int mDisplayDPI;
-	private int mLayoutEM = 10;
+	private static final int DEFAULT_LAYOUT_EM = 10;
+	private int mLayoutEM = DEFAULT_LAYOUT_EM;
 	private int mLayoutW = 312;
 	private int mLayoutH = 504;
 
@@ -161,6 +162,18 @@ public class DocumentActivity extends Activity
 			return null;
 		}
 		return core;
+	}
+
+	/* Android and file managers disagree on what to call a markdown file
+	 * (text/x-markdown, text/plain, application/octet-stream...) while MuPDF
+	 * only recognises text/markdown, so go by the file name as well. */
+	private static boolean isMarkdown(String mimetype, String name) {
+		if ("text/markdown".equals(mimetype) || "text/x-markdown".equals(mimetype))
+			return true;
+		if (name == null)
+			return false;
+		name = name.toLowerCase(java.util.Locale.ROOT);
+		return name.endsWith(".md") || name.endsWith(".markdown");
 	}
 
 	private MuPDFCore openCore(Uri uri, long size, String mimetype) throws IOException {
@@ -292,6 +305,10 @@ public class DocumentActivity extends Activity
 				if (mimetype == null || mimetype.equals("application/octet-stream")) {
 					mimetype = getContentResolver().getType(uri);
 					Log.i(APP, "  MAGIC (Resolved) " + mimetype);
+				}
+				if (isMarkdown(mimetype, mDocTitle != null ? mDocTitle : uri.getLastPathSegment())) {
+					mimetype = "text/markdown";
+					Log.i(APP, "  MAGIC (Markdown) " + mimetype);
 				}
 				if (mimetype == null || mimetype.equals("application/octet-stream")) {
 					mimetype = mDocTitle;
@@ -596,7 +613,8 @@ public class DocumentActivity extends Activity
 				public boolean onMenuItemClick(MenuItem item) {
 					float oldLayoutEM = mLayoutEM;
 					int id = item.getItemId();
-					if (id == R.id.action_layout_6pt) mLayoutEM = 6;
+					if (id == R.id.action_layout_default) mLayoutEM = DEFAULT_LAYOUT_EM;
+					else if (id == R.id.action_layout_6pt) mLayoutEM = 6;
 					else if (id == R.id.action_layout_7pt) mLayoutEM = 7;
 					else if (id == R.id.action_layout_8pt) mLayoutEM = 8;
 					else if (id == R.id.action_layout_9pt) mLayoutEM = 9;

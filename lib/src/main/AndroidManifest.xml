@@ -22,6 +22,8 @@
 				<data android:mimeType="application/epub+zip" />
 				<data android:mimeType="application/x-fictionbook" />
 				<data android:mimeType="application/x-mobipocket-ebook" />
+				<data android:mimeType="text/markdown" />
+				<data android:mimeType="text/x-markdown" />
 				<!-- list application/octet-stream to catch the ones android doesn't recognize -->
 				<data android:mimeType="application/octet-stream" />
 			</intent-filter>

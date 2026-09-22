@@ -421,7 +421,7 @@ public class ReaderView
 		View v = mChildViews.get(mCurrent);
 		if (v != null) {
 			Rect bounds = getScrollBounds(v);
-			switch(directionOfTravel(velocityX, velocityY)) {
+			switch(pageTurnDirection(velocityX, velocityY)) {
 			case MOVING_LEFT:
 				if (HORIZONTAL_SCROLLING && bounds.left >= 0) {
 					// Fling off to the left bring next view onto screen
@@ -968,6 +968,18 @@ public class ReaderView
 			return (vy > 0) ? MOVING_DOWN : MOVING_UP;
 		else
 			return MOVING_DIAGONALLY;
+	}
+
+	/* A thumb flicking between pages sweeps an arc, so be generous about the
+	 * angle when deciding whether a fling turns the page: nearer the scrolling
+	 * axis than the other one is enough, where directionOfTravel wants twice
+	 * as near. */
+	private static int pageTurnDirection(float vx, float vy) {
+		if (HORIZONTAL_SCROLLING && Math.abs(vx) > Math.abs(vy))
+			return (vx > 0) ? MOVING_RIGHT : MOVING_LEFT;
+		if (!HORIZONTAL_SCROLLING && Math.abs(vy) > Math.abs(vx))
+			return (vy > 0) ? MOVING_DOWN : MOVING_UP;
+		return directionOfTravel(vx, vy);
 	}
 
 	private static boolean withinBoundsInDirectionOfTravel(Rect bounds, float vx, float vy) {

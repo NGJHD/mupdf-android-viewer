@@ -38,6 +38,8 @@ public class LibraryActivity extends Activity
 				"application/epub+zip",
 				"application/x-fictionbook",
 				"application/x-mobipocket-ebook",
+				"text/markdown",
+				"text/x-markdown",
 				// ... and the ones android doesn't know about
 				"application/octet-stream"
 			});

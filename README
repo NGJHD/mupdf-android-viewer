@@ -21,7 +21,8 @@ The viewer library has been reworked for comfortable reading on a phone:
 
 * Pages are stacked vertically and scroll continuously from one to the next,
   rather than paging sideways. Tapping the left or right edge of the screen
-  still moves by a page height.
+  still moves by a page height. A flick turns the page even when it sweeps
+  up to 45 degrees off vertical, as a thumb tends to.
 
 * Double tapping toggles between fitting the page width and fitting the
   whole page. Any pinch zoom is dropped so the new fit applies immediately.
@@ -38,11 +39,20 @@ The viewer library has been reworked for comfortable reading on a phone:
   saves a copy of it to the phone's Downloads folder. Both are hidden for
   documents that were not opened from a content: uri.
 
+* Markdown files (.md) open too, laid out like an ebook so the font size
+  button applies. The bundled MuPDF already renders them; the viewer just
+  had to claim the text/markdown type and recognise the file name.
+
 * The toolbars and the page slider are half again as tall as they were, and
   the slider is centred in its bar. Dragging the slider turns to that page
   as you drag instead of waiting for you to let go.
 
-The application module has one build change: the build produces a single
+The application has its own id, io.github.ngjhd.mupdf, instead of Artifex's
+com.artifex.mupdf.viewer.app, so Google Play no longer offers the upstream
+viewer as an update to it. It installs alongside a copy built with the old id
+rather than replacing it.
+
+The application module has one other build change: the build produces a single
 arm64-v8a APK. That is the architecture of every modern Android phone, and it
 is the only artifact published on the GitHub releases page. The stock build
 also emitted armeabi, mips, mips64 and riscv64 APKs which contain no native
