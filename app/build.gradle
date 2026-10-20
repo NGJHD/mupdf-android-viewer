@@ -1,7 +1,7 @@
 apply plugin: 'com.android.application'
 
 group = 'com.artifex.mupdf'
-version = '2.0.0'
+version = '2.0.1'
 
 dependencies {
 	if (file('../lib/build.gradle').isFile())
@@ -20,8 +20,8 @@ android {
 		applicationId 'io.github.ngjhd.mupdf'
 		minSdkVersion 21
 		targetSdkVersion 36
-		versionName '2.0.0'
-		versionCode 251
+		versionName '2.0.1'
+		versionCode 252
 	}
 
 	splits {

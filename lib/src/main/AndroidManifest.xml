@@ -24,6 +24,9 @@
 				<data android:mimeType="application/x-mobipocket-ebook" />
 				<data android:mimeType="text/markdown" />
 				<data android:mimeType="text/x-markdown" />
+				<!-- Telegram and others hand .md files over as text/plain when
+				     Android's MimeTypeMap doesn't know the extension -->
+				<data android:mimeType="text/plain" />
 				<!-- list application/octet-stream to catch the ones android doesn't recognize -->
 				<data android:mimeType="application/octet-stream" />
 			</intent-filter>
