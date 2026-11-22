@@ -726,7 +726,24 @@ public class PageView extends ViewGroup {
 				mPatch.setImageBitmap(null);
 				mPatch.invalidate();
 				removeView(mPatch);
+				/* Forget it too, or updateHq would keep drawing into an
+				 * ImageView that is no longer attached, and this page would
+				 * never get a sharp render again. */
+				mPatch = null;
 			}
+	}
+
+	/* Swap the pair of bitmaps the HQ patch renders into. Pages normally share
+	 * one pair, which only works while a single page is sharp at a time; in
+	 * continuous scrolling a second visible page gets a pair of its own. */
+	public void setPatchBitmaps(Bitmap a, Bitmap b) {
+		if (a == null || b == null)
+			return;
+		if ((mPatchBm == a && mOldPatchBm == b) || (mPatchBm == b && mOldPatchBm == a))
+			return;
+		removeHq();
+		mPatchBm = a;
+		mOldPatchBm = b;
 	}
 
 	public int getPage() {

@@ -1,0 +1,17 @@
+<!-- Continuous: the end of one page above the start of the next. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+        android:width="24dp"
+        android:height="24dp"
+        android:viewportWidth="24.0"
+        android:viewportHeight="24.0">
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineJoin="round"
+        android:pathData="M4.5,2.5h15v6h-15zM4.5,11.5h15v10h-15z"/>
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M7.5,5.5h9M7.5,15h9M7.5,18.5h9"/>
+</vector>

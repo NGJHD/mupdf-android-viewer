@@ -18,6 +18,8 @@ public class PageAdapter extends BaseAdapter {
 	private final SparseArray<PointF> mPageSizes = new SparseArray<PointF>();
 	private       Bitmap mSharedHqBm1;
 	private       Bitmap mSharedHqBm2;
+	private       Bitmap mSecondaryHqBm1;
+	private       Bitmap mSecondaryHqBm2;
 
 	public PageAdapter(Context c, MuPDFCore core) {
 		mContext = c;
@@ -49,6 +51,30 @@ public class PageAdapter extends BaseAdapter {
 		if (mSharedHqBm2!=null)
 			mSharedHqBm2.recycle();
 		mSharedHqBm2 = null;
+		if (mSecondaryHqBm1!=null)
+			mSecondaryHqBm1.recycle();
+		mSecondaryHqBm1 = null;
+		if (mSecondaryHqBm2!=null)
+			mSecondaryHqBm2.recycle();
+		mSecondaryHqBm2 = null;
+	}
+
+	/** The HQ bitmap pair every page view is created with. */
+	public synchronized Bitmap[] getPrimaryHqBitmaps() {
+		return new Bitmap[] { mSharedHqBm1, mSharedHqBm2 };
+	}
+
+	/** A second HQ bitmap pair, so a second visible page can be sharp at the
+	 * same time as the current one. Made on first use, at the given size. */
+	public synchronized Bitmap[] getSecondaryHqBitmaps(int width, int height) {
+		if (width <= 0 || height <= 0)
+			return new Bitmap[] { null, null };
+		if (mSecondaryHqBm1 == null || mSecondaryHqBm1.isRecycled()
+				|| mSecondaryHqBm1.getWidth() != width || mSecondaryHqBm1.getHeight() != height) {
+			mSecondaryHqBm1 = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+			mSecondaryHqBm2 = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+		}
+		return new Bitmap[] { mSecondaryHqBm1, mSecondaryHqBm2 };
 	}
 
 	public void refresh() {

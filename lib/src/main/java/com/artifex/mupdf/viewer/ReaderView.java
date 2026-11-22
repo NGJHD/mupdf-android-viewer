@@ -7,6 +7,7 @@ import java.util.NoSuchElementException;
 import java.util.Stack;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.net.Uri;
@@ -34,7 +35,13 @@ public class ReaderView
 	private boolean tapDisabled = false;
 	private boolean mSelecting = false;
 	private boolean mFitWidth = false;
+	/* Continuous scrolling: pages are stacked and the view stops wherever a
+	 * scroll or fling leaves it, instead of snapping one page per swipe. */
+	private boolean mContinuous = false;
 	private int mDraggingHandle = PageView.HANDLE_NONE;
+	/* The page holding the selection being made or adjusted. With continuous
+	 * scrolling this need not be the current page. */
+	private PageView mSelectView;
 	private int tapPageMargin;
 
 	private static final int MOVING_DIAGONALLY = 0;
@@ -50,6 +57,13 @@ public class ReaderView
 	private static final float MAX_SCALE        = 64.0f;
 
 	private static final boolean HORIZONTAL_SCROLLING = false;
+
+	/* In continuous mode, how many pages beyond the current one may be laid
+	 * out on each side to cover the screen when pages are short. */
+	private static final int MAX_EXTRA_VIEWS = 4;
+	/* A fling in continuous mode is not bounded by the current page; the
+	 * document ends stop it in onLayout instead. */
+	private static final int CONTINUOUS_FLING_RANGE = 1 << 24;
 
 	private PageAdapter           mAdapter;
 	protected int               mCurrent;    // Adapter's index for the current view
@@ -203,7 +217,36 @@ public class ReaderView
 		requestLayout();
 	}
 
+	public boolean isContinuousScroll() {
+		return mContinuous;
+	}
+
+	public void setContinuousScroll(boolean continuous) {
+		if (mContinuous == continuous)
+			return;
+		mContinuous = continuous;
+		mScroller.forceFinished(true);
+		mXScroll = mYScroll = 0;
+		mResetLayout = true;
+		requestLayout();
+	}
+
+	/* Tap-to-turn in continuous mode: move most of a screen, leaving a little
+	 * overlap so a line cut off at the edge is not lost. */
+	private void continuousStep(int direction) {
+		int remainingX = mScroller.getFinalX() - mScroller.getCurrX();
+		int remainingY = mScroller.getFinalY() - mScroller.getCurrY();
+		int step = (int)(getHeight() * 0.9f);
+		mScrollerLastX = mScrollerLastY = 0;
+		mScroller.startScroll(0, 0, remainingX, remainingY - direction * step, 400);
+		mStepper.prod();
+	}
+
 	public void smartMoveForwards() {
+		if (mContinuous) {
+			continuousStep(1);
+			return;
+		}
 		View v = mChildViews.get(mCurrent);
 		if (v == null)
 			return;
@@ -277,6 +320,10 @@ public class ReaderView
 	}
 
 	public void smartMoveBackwards() {
+		if (mContinuous) {
+			continuousStep(-1);
+			return;
+		}
 		View v = mChildViews.get(mCurrent);
 		if (v == null)
 			return;
@@ -419,6 +466,19 @@ public class ReaderView
 			return true;
 
 		View v = mChildViews.get(mCurrent);
+		if (v != null && mContinuous) {
+			/* Plain momentum scroll across page boundaries. Sideways it stays
+			 * within the current page (never jumping back if already past an
+			 * edge); vertically only the document ends, enforced in onLayout,
+			 * stop it. */
+			Rect bounds = getScrollBounds(v);
+			mScrollerLastX = mScrollerLastY = 0;
+			mScroller.fling(0, 0, (int)velocityX, (int)velocityY,
+					Math.min(bounds.left, 0), Math.max(bounds.right, 0),
+					-CONTINUOUS_FLING_RANGE, CONTINUOUS_FLING_RANGE);
+			mStepper.prod();
+			return true;
+		}
 		if (v != null) {
 			Rect bounds = getScrollBounds(v);
 			switch(pageTurnDirection(velocityX, velocityY)) {
@@ -491,11 +551,12 @@ public class ReaderView
 	}
 
 	public void onLongPress(MotionEvent e) {
-		PageView pageView = (PageView)getDisplayedView();
+		PageView pageView = viewAt(e.getX(), e.getY());
 		if (pageView == null)
 			return;
 		clearSelection();
 		if (pageView.startSelection(e.getX(), e.getY())) {
+			mSelectView = pageView;
 			mSelecting = true;
 			/* The release that ends the drag must not also count as a tap. */
 			tapDisabled = true;
@@ -505,10 +566,9 @@ public class ReaderView
 
 	public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX,
 			float distanceY) {
-		PageView pageView = (PageView)getDisplayedView();
 		if (mSelecting) {
-			if (pageView != null)
-				pageView.extendSelection(e2.getX(), e2.getY());
+			if (mSelectView != null)
+				mSelectView.extendSelection(e2.getX(), e2.getY());
 			return true;
 		}
 		if (!tapDisabled)
@@ -580,21 +640,21 @@ public class ReaderView
 			/* Grabbing a selection handle takes over the whole gesture: no
 			 * panning, and the release must not count as a tap that would
 			 * dismiss the selection we are adjusting. */
-			PageView pageView = (PageView)getDisplayedView();
+			PageView pageView = selectionView();
 			mDraggingHandle = pageView != null
 				? pageView.hitSelectionHandle(event.getX(), event.getY())
 				: PageView.HANDLE_NONE;
 			if (mDraggingHandle != PageView.HANDLE_NONE) {
+				mSelectView = pageView;
 				tapDisabled = true;
 				return true;
 			}
 		}
 
 		if (mDraggingHandle != PageView.HANDLE_NONE) {
-			PageView pageView = (PageView)getDisplayedView();
 			if (action == MotionEvent.ACTION_MOVE) {
-				if (pageView != null)
-					pageView.moveSelectionHandle(mDraggingHandle, event.getX(), event.getY());
+				if (mSelectView != null)
+					mSelectView.moveSelectionHandle(mDraggingHandle, event.getX(), event.getY());
 			} else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
 				mDraggingHandle = PageView.HANDLE_NONE;
 			}
@@ -604,9 +664,8 @@ public class ReaderView
 		/* The gesture detector stops reporting scrolls once it has fired a long
 		 * press, so drag the loose end of the selection from here instead. */
 		if (mSelecting && action == MotionEvent.ACTION_MOVE) {
-			PageView pageView = (PageView)getDisplayedView();
-			if (pageView != null)
-				pageView.extendSelection(event.getX(), event.getY());
+			if (mSelectView != null)
+				mSelectView.extendSelection(event.getX(), event.getY());
 			return true;
 		}
 
@@ -711,22 +770,11 @@ public class ReaderView
 				}
 			}
 
-			// Remove not needed children and hold them for reuse
-			int numChildren = mChildViews.size();
-			int childIndices[] = new int[numChildren];
-			for (int i = 0; i < numChildren; i++)
-				childIndices[i] = mChildViews.keyAt(i);
-
-			for (int i = 0; i < numChildren; i++) {
-				int ai = childIndices[i];
-				if (ai < mCurrent - 1 || ai > mCurrent + 1) {
-					View v = mChildViews.get(ai);
-					onNotInUse(v);
-					mViewCache.add(v);
-					removeViewInLayout(v);
-					mChildViews.remove(ai);
-				}
-			}
+			// Remove not needed children and hold them for reuse (in
+			// continuous mode, layoutContinuous does this once it knows
+			// which pages it needs).
+			if (!mContinuous)
+				recycleChildrenOutside(mCurrent - 1, mCurrent + 1);
 		} else {
 			mResetLayout = false;
 			mXScroll = mYScroll = 0;
@@ -771,8 +819,10 @@ public class ReaderView
 			Point corr = getCorrection(getScrollBounds(cvLeft, cvTop, cvRight, cvBottom));
 			cvRight += corr.x;
 			cvLeft += corr.x;
-			cvTop += corr.y;
-			cvBottom += corr.y;
+			if (!mContinuous) {
+				cvTop += corr.y;
+				cvBottom += corr.y;
+			}
 		} else if (HORIZONTAL_SCROLLING && cv.getMeasuredHeight() <= getHeight()) {
 			// When the current view is as small as the screen in height, clamp
 			// it vertically
@@ -785,6 +835,12 @@ public class ReaderView
 			Point corr = getCorrection(getScrollBounds(cvLeft, cvTop, cvRight, cvBottom));
 			cvRight += corr.x;
 			cvLeft += corr.x;
+		}
+
+		if (mContinuous) {
+			layoutContinuous(cvLeft, cvTop, cvRight);
+			invalidate();
+			return;
 		}
 
 		cv.layout(cvLeft, cvTop, cvRight, cvBottom);
@@ -828,6 +884,120 @@ public class ReaderView
 		}
 
 		invalidate();
+	}
+
+	/* Detach and keep for reuse every page view outside [first, last]. */
+	private void recycleChildrenOutside(int first, int last) {
+		for (int k = mChildViews.size() - 1; k >= 0; k--) {
+			int ai = mChildViews.keyAt(k);
+			if (ai < first || ai > last) {
+				View v = mChildViews.valueAt(k);
+				onNotInUse(v);
+				mViewCache.add(v);
+				removeViewInLayout(v);
+				mChildViews.removeAt(k);
+			}
+		}
+	}
+
+	/* Continuous mode: stack pages above and below the current one until the
+	 * screen is covered, keep the document's first page from coming down past
+	 * the top of the screen and its last page from going up past the bottom,
+	 * then lay them all out. cvTop is where the current page wants to be. */
+	private void layoutContinuous(int cvLeft, int cvTop, int cvRight) {
+		int count = mAdapter.getCount();
+		int screenHeight = getHeight();
+		int centreX = (cvLeft + cvRight) / 2;
+		int base = MAX_EXTRA_VIEWS + 1;
+		int[] tops = new int[2 * base + 1];
+		tops[base] = cvTop;
+		int first = mCurrent, last = mCurrent;
+		int dy = 0;
+
+		for (int pass = 0; pass < 2; pass++) {
+			// Always keep the immediate neighbours ready, then add more
+			// only while there is still uncovered screen.
+			while (first > 0 && first > mCurrent - base
+					&& (first == mCurrent || tops[first - mCurrent + base] + dy > 0)) {
+				View v = getOrCreateChild(first - 1);
+				tops[first - 1 - mCurrent + base] = tops[first - mCurrent + base] - GAP - v.getMeasuredHeight();
+				first--;
+			}
+			while (last < count - 1 && last < mCurrent + base
+					&& (last == mCurrent || tops[last - mCurrent + base]
+						+ mChildViews.get(last).getMeasuredHeight() + dy < screenHeight)) {
+				getOrCreateChild(last + 1);
+				tops[last + 1 - mCurrent + base] = tops[last - mCurrent + base]
+						+ mChildViews.get(last).getMeasuredHeight() + GAP;
+				last++;
+			}
+			if (pass > 0)
+				break;
+
+			boolean haveTop = first == 0;
+			boolean haveBottom = last == count - 1;
+			int docTop = tops[first - mCurrent + base];
+			int docBottom = tops[last - mCurrent + base] + mChildViews.get(last).getMeasuredHeight();
+			if (haveTop && haveBottom && docBottom - docTop <= screenHeight)
+				dy = (screenHeight - docBottom - docTop) / 2; // whole document fits: centre it
+			else if (haveTop && docTop > 0)
+				dy = -docTop;
+			else if (haveBottom && docBottom < screenHeight)
+				dy = screenHeight - docBottom;
+			if (dy == 0)
+				break;
+			// Ran into an end of the document: stop any fling or step there.
+			if (!mScroller.isFinished())
+				mScroller.forceFinished(true);
+			// Shifting may have uncovered screen at the other end, so go
+			// round once more to fill it.
+		}
+
+		for (int i = first; i <= last; i++) {
+			View v = mChildViews.get(i);
+			int w = v.getMeasuredWidth();
+			int top = tops[i - mCurrent + base] + dy;
+			int left = (i == mCurrent) ? cvLeft : centreX - w / 2;
+			v.layout(left, top, left + w, top + v.getMeasuredHeight());
+		}
+
+		recycleChildrenOutside(first, last);
+	}
+
+	/* Continuous mode: once scrolling stops, render the current page and the
+	 * most visible other page sharp, each into its own bitmap pair. */
+	private void settleContinuous() {
+		PageView current = (PageView) getDisplayedView();
+		PageView second = null;
+		int bestVisible = 0;
+		for (int i = 0; i < mChildViews.size(); i++) {
+			View v = mChildViews.valueAt(i);
+			if (v == current)
+				continue;
+			int visible = Math.min(v.getBottom(), getHeight()) - Math.max(v.getTop(), 0);
+			if (visible > bestVisible) {
+				bestVisible = visible;
+				second = (PageView) v;
+			}
+		}
+
+		for (int i = 0; i < mChildViews.size(); i++) {
+			View v = mChildViews.valueAt(i);
+			if (v != current && v != second)
+				((PageView) v).removeHq();
+		}
+
+		Bitmap[] primary = mAdapter.getPrimaryHqBitmaps();
+		if (current != null)
+			current.setPatchBitmaps(primary[0], primary[1]);
+		if (second != null) {
+			Bitmap[] secondary = mAdapter.getSecondaryHqBitmaps(getWidth(), getHeight());
+			second.setPatchBitmaps(secondary[0], secondary[1]);
+		}
+		if (current != null)
+			current.updateHq();
+		if (second != null)
+			second.updateHq();
 	}
 
 	@Override
@@ -949,6 +1119,10 @@ public class ReaderView
 
 	private void slideViewOntoScreen(View v) {
 		Point corr = getCorrection(getScrollBounds(v));
+		/* In continuous mode only sideways is put right; vertically the view
+		 * stays where it was left, and onLayout holds the document ends. */
+		if (mContinuous)
+			corr.y = 0;
 		if (corr.x != 0 || corr.y != 0) {
 			mScrollerLastX = mScrollerLastY = 0;
 			mScroller.startScroll(0, 0, corr.x, corr.y, 400);
@@ -957,8 +1131,10 @@ public class ReaderView
 	}
 
 	private Point subScreenSizeOffset(View v) {
+		/* Continuous pages are stacked edge to edge (plus GAP) rather than
+		 * each padded out to a screen's height. */
 		return new Point(Math.max((getWidth() - v.getMeasuredWidth())/2, 0),
-				Math.max((getHeight() - v.getMeasuredHeight())/2, 0));
+				mContinuous ? 0 : Math.max((getHeight() - v.getMeasuredHeight())/2, 0));
 	}
 
 	private static int directionOfTravel(float vx, float vy) {
@@ -997,13 +1173,35 @@ public class ReaderView
 	protected void onSelectionStarted() {}
 	protected void onSelectionCleared() {}
 
+	/* The page under a screen point. In continuous mode a tap can land on a
+	 * neighbour of the current page; otherwise this is the current page. */
+	private PageView viewAt(float x, float y) {
+		if (mContinuous) {
+			for (int i = 0; i < mChildViews.size(); i++) {
+				View v = mChildViews.valueAt(i);
+				if (x >= v.getLeft() && x < v.getRight() && y >= v.getTop() && y < v.getBottom())
+					return (PageView)v;
+			}
+		}
+		return (PageView)getDisplayedView();
+	}
+
+	/* The page that holds a selection, if any. */
+	private PageView selectionView() {
+		for (int i = 0; i < mChildViews.size(); i++) {
+			View v = mChildViews.valueAt(i);
+			if (v instanceof PageView && ((PageView)v).hasSelection())
+				return (PageView)v;
+		}
+		return null;
+	}
+
 	public boolean hasSelection() {
-		PageView pageView = (PageView)getDisplayedView();
-		return pageView != null && pageView.hasSelection();
+		return selectionView() != null;
 	}
 
 	public String getSelectedText() {
-		PageView pageView = (PageView)getDisplayedView();
+		PageView pageView = selectionView();
 		return pageView != null ? pageView.getSelectedText() : null;
 	}
 
@@ -1011,6 +1209,7 @@ public class ReaderView
 	 * left behind on another page does not linger. */
 	public void clearSelection() {
 		mSelecting = false;
+		mSelectView = null;
 		for (int i = 0; i < mChildViews.size(); i++) {
 			View v = mChildViews.valueAt(i);
 			if (v instanceof PageView)
@@ -1046,7 +1245,7 @@ public class ReaderView
 
 	public boolean onSingleTapConfirmed(MotionEvent e) {
 		if (!tapDisabled) {
-			PageView pageView = (PageView) getDisplayedView();
+			PageView pageView = viewAt(e.getX(), e.getY());
 
 			/* A tap anywhere dismisses a selection and does nothing else. */
 			if (hasSelection()) {
@@ -1101,7 +1300,10 @@ public class ReaderView
 	protected void onSettle(View v) {
 		// When the layout has settled ask the page to render
 		// in HQ
-		((PageView) v).updateHq();
+		if (mContinuous)
+			settleContinuous();
+		else
+			((PageView) v).updateHq();
 	}
 
 	protected void onUnsettle(View v) {

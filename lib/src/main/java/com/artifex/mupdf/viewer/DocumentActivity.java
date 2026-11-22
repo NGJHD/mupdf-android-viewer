@@ -83,6 +83,7 @@ public class DocumentActivity extends Activity
 	private final int    OUTLINE_REQUEST=0;
 	private final int    SAVE_PERMISSION_REQUEST=1;
 	private final int    COPY_MENU_ITEM=1;
+	private static final String PREF_CONTINUOUS_SCROLL = "ContinuousScroll";
 	private MuPDFCore    core;
 	private String       mDocTitle;
 	private String       mDocKey;
@@ -104,6 +105,7 @@ public class DocumentActivity extends Activity
 	private LinearLayout mSearchBar;
 	private LinearLayout mBottomBar;
 	private ImageButton  mDownloadButton;
+	private ImageButton  mScrollModeButton;
 	private TopBarMode   mTopBarMode = TopBarMode.Main;
 	private ImageButton  mSearchBack;
 	private ImageButton  mSearchFwd;
@@ -688,6 +690,23 @@ public class DocumentActivity extends Activity
 
 		// Reenstate last state if it was recorded
 		SharedPreferences prefs = getPreferences(Context.MODE_PRIVATE);
+
+		/* Scrolling mode is an app-wide choice, not per document. */
+		mDocView.setContinuousScroll(prefs.getBoolean(PREF_CONTINUOUS_SCROLL, false));
+		updateScrollModeButton();
+		mScrollModeButton.setOnClickListener(new View.OnClickListener() {
+			public void onClick(View v) {
+				boolean continuous = !mDocView.isContinuousScroll();
+				mDocView.setContinuousScroll(continuous);
+				getPreferences(Context.MODE_PRIVATE).edit()
+					.putBoolean(PREF_CONTINUOUS_SCROLL, continuous).apply();
+				updateScrollModeButton();
+				Toast.makeText(DocumentActivity.this,
+					continuous ? R.string.scroll_mode_continuous : R.string.scroll_mode_paged,
+					Toast.LENGTH_SHORT).show();
+			}
+		});
+
 		mDocView.setDisplayedViewIndex(prefs.getInt("page"+mDocKey, 0));
 
 		if (savedInstanceState == null || !savedInstanceState.getBoolean("ButtonsHidden", false))
@@ -794,6 +813,13 @@ public class DocumentActivity extends Activity
 			core.onDestroy();
 		core = null;
 		super.onDestroy();
+	}
+
+	/* The button shows the mode in use: one page, or a stack of pages. */
+	private void updateScrollModeButton() {
+		mScrollModeButton.setImageResource(mDocView.isContinuousScroll()
+			? R.drawable.ic_scroll_continuous_white_24dp
+			: R.drawable.ic_scroll_paged_white_24dp);
 	}
 
 	private void setButtonEnabled(ImageButton button, boolean enabled) {
@@ -1145,6 +1171,7 @@ public class DocumentActivity extends Activity
 		mSearchText = (EditText)mButtonsView.findViewById(R.id.searchText);
 		mDownloadButton = (ImageButton)mButtonsView.findViewById(R.id.downloadButton);
 		mLayoutButton = mButtonsView.findViewById(R.id.layoutButton);
+		mScrollModeButton = (ImageButton)mButtonsView.findViewById(R.id.scrollModeButton);
 		mTopBarSwitcher.setVisibility(View.INVISIBLE);
 		mPageNumberView.setVisibility(View.INVISIBLE);
 		mActionBar.setVisibility(View.VISIBLE);

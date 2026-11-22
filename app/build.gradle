@@ -20,8 +20,8 @@ android {
 		applicationId 'io.github.ngjhd.mupdf'
 		minSdkVersion 21
 		targetSdkVersion 36
-		versionName '2.0.2'
-		versionCode 253
+		versionName '2.0.3'
+		versionCode 254
 	}
 
 	splits {
