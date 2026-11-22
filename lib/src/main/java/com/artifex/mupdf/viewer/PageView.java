@@ -757,27 +757,51 @@ public class PageView extends ViewGroup {
 		}
 	}
 
+	/** hitLink(x, y) result: the tap did not land on (or near) a link. */
+	public static final int LINK_NONE = -2;
+	/** hitLink(x, y) result: a link was hit but there is no page to go to
+	 * (it was external and handed to another app, or it failed to resolve). */
+	public static final int LINK_HANDLED = -1;
+
+	/* Links are hit-tested against their PDF rectangle grown by this much on
+	 * every side, because a line of link text is often only ~10dp tall on a
+	 * phone, far below a comfortable touch target. */
+	private static final float LINK_TOUCH_SLOP_DP = 16;
+
+	/** Returns the page index to jump to, LINK_HANDLED or LINK_NONE. */
 	public int hitLink(float x, float y) {
-		// Since link highlighting was implemented, the super class
-		// PageView has had sufficient information to be able to
-		// perform this method directly. Making that change would
-		// make MuPDFCore.hitLinkPage superfluous.
+		if (mLinks == null || mLinks.length == 0)
+			return LINK_NONE;
+
 		float scale = mSourceScale*(float)getWidth()/(float)mSize.x;
 		float docRelX = (x - getLeft())/scale;
 		float docRelY = (y - getTop())/scale;
+		float slop = LINK_TOUCH_SLOP_DP * getResources().getDisplayMetrics().density / scale;
 
-		if (mLinks != null)
-			for (Link l: mLinks)
-				if (l.getBounds().contains(docRelX, docRelY)) {
-					/* Distinguish 'followed an external link' from 'hit nothing',
-					 * so the caller does not also treat the tap as a page turn. */
-					if (l.isExternal()) {
-						hitLink(l);
-						return -1;
-					}
-					return hitLink(l);
-				}
-		return 0;
+		/* Pick the link whose rectangle is closest to the tap, so neighbouring
+		 * links whose padded areas overlap still resolve to the intended one.
+		 * A tap inside a rectangle has distance 0 and always wins. */
+		Link best = null;
+		float bestDist = Float.MAX_VALUE;
+		for (Link l : mLinks) {
+			com.artifex.mupdf.fitz.Rect b = l.getBounds();
+			float dx = Math.max(Math.max(b.x0 - docRelX, docRelX - b.x1), 0);
+			float dy = Math.max(Math.max(b.y0 - docRelY, docRelY - b.y1), 0);
+			if (dx > slop || dy > slop)
+				continue;
+			float dist = dx*dx + dy*dy;
+			if (dist < bestDist) {
+				bestDist = dist;
+				best = l;
+			}
+		}
+		if (best == null)
+			return LINK_NONE;
+
+		/* Distinguish 'followed a link' from 'hit nothing', so the caller
+		 * does not also treat the tap as a page turn. */
+		int page = hitLink(best);
+		return (best.isExternal() || page < 0) ? LINK_HANDLED : page;
 	}
 
 	protected CancellableTaskDefinition<Void, Boolean> getDrawPageTask(final Bitmap bm, final int sizeX, final int sizeY,

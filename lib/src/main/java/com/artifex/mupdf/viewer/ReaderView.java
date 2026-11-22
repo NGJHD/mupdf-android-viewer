@@ -1056,11 +1056,11 @@ public class ReaderView
 
 			/* Hyperlinks are always live, so try one before falling back to the
 			 * tap-to-turn-page margins. */
-			int link = pageView != null ? pageView.hitLink(e.getX(), e.getY()) : 0;
-			if (link > 0) {
+			int link = pageView != null ? pageView.hitLink(e.getX(), e.getY()) : PageView.LINK_NONE;
+			if (link >= 0) {
 				pushHistory();
 				setDisplayedViewIndex(link);
-			} else if (link < 0) {
+			} else if (link == PageView.LINK_HANDLED) {
 				/* an external link was handed to another app */
 			} else if (e.getX() < tapPageMargin) {
 				smartMoveBackwards();
