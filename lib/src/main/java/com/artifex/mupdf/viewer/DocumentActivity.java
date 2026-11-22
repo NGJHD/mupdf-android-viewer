@@ -41,6 +41,7 @@ import android.view.Menu;
 import android.view.MenuItem.OnMenuItemClickListener;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowManager;
@@ -51,7 +52,6 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
-import android.widget.PopupMenu;
 import android.widget.RelativeLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -83,6 +83,9 @@ public class DocumentActivity extends Activity
 	private final int    OUTLINE_REQUEST=0;
 	private final int    SAVE_PERMISSION_REQUEST=1;
 	private final int    COPY_MENU_ITEM=1;
+	private final int    SELECT_ALL_MENU_ITEM=2;
+	private final int    SHARE_MENU_ITEM=3;
+	private final int    WEB_SEARCH_MENU_ITEM=4;
 	private static final String PREF_CONTINUOUS_SCROLL = "ContinuousScroll";
 	private MuPDFCore    core;
 	private String       mDocTitle;
@@ -123,13 +126,20 @@ public class DocumentActivity extends Activity
 	protected int mDisplayDPI;
 	private static final int DEFAULT_LAYOUT_EM = 10;
 	private int mLayoutEM = DEFAULT_LAYOUT_EM;
+	/* Reading settings for reflowed documents, and the stylesheet the open
+	 * document was laid out with (MuPDF only reads it on opening). */
+	private ReadingSettings mReading;
+	private String mAppliedCss;
+	/* A position to return to after reopening the document for new settings. */
+	private static final String EXTRA_BOOKMARK = "com.artifex.mupdf.viewer.DocumentActivity.BOOKMARK";
+	private boolean mHasPendingBookmark;
+	private long mPendingBookmark;
 	private int mLayoutW = 312;
 	private int mLayoutH = 504;
 
 	protected Insets systemInsets = Insets.NONE;
 
 	protected View mLayoutButton;
-	protected PopupMenu mLayoutPopupMenu;
 
 	private String toHex(byte[] digest) {
 		StringBuilder builder = new StringBuilder(2 * digest.length);
@@ -309,12 +319,32 @@ public class DocumentActivity extends Activity
 					Log.i(APP, "  MAGIC (Resolved) " + mimetype);
 				}
 				if (isMarkdown(mimetype, mDocTitle != null ? mDocTitle : uri.getLastPathSegment())) {
-					mimetype = "text/markdown";
-					Log.i(APP, "  MAGIC (Markdown) " + mimetype);
+					/* Markdown has its own viewer, with math, diagrams and
+					 * highlighted code. Pass the read grant on with it. */
+					Log.i(APP, "  MAGIC (Markdown) handing over to MarkdownActivity");
+					Intent md = new Intent(intent);
+					md.setClass(this, MarkdownActivity.class);
+					md.setDataAndType(uri, "text/markdown");
+					md.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+					if (mDocTitle != null)
+						md.putExtra(MarkdownActivity.EXTRA_TITLE, mDocTitle);
+					startActivity(md);
+					finish();
+					return;
 				}
 				if (mimetype == null || mimetype.equals("application/octet-stream")) {
 					mimetype = mDocTitle;
 					Log.i(APP, "  MAGIC (Filename) " + mimetype);
+				}
+
+				mReading = ReadingSettings.load(this);
+				mLayoutEM = mReading.layoutEm(DEFAULT_LAYOUT_EM);
+				mAppliedCss = mReading.reflowCss(this);
+				com.artifex.mupdf.fitz.Context.setUserCSS(mAppliedCss);
+				if (intent.hasExtra(EXTRA_BOOKMARK)) {
+					mHasPendingBookmark = true;
+					mPendingBookmark = intent.getLongExtra(EXTRA_BOOKMARK, 0);
+					intent.removeExtra(EXTRA_BOOKMARK);
 				}
 
 				try {
@@ -385,9 +415,42 @@ public class DocumentActivity extends Activity
 		alert.show();
 	}
 
+	/* A new text size only needs a fresh layout, but MuPDF reads the rest of
+	 * the reading settings (a stylesheet) only when it opens a document, so
+	 * reopen it, keeping our place in the text. */
+	private void applyReadingSettings() {
+		if (core == null || mDocView == null)
+			return;
+		String css = mReading.reflowCss(this);
+		if (!css.equals(mAppliedCss)) {
+			try {
+				getIntent().putExtra(EXTRA_BOOKMARK, core.bookmark(mDocView.getDisplayedViewIndex()));
+			} catch (RuntimeException x) {
+				/* reopen at the saved page instead */
+			}
+			recreate();
+			return;
+		}
+		int em = mReading.layoutEm(DEFAULT_LAYOUT_EM);
+		if (em != mLayoutEM) {
+			mLayoutEM = em;
+			relayoutDocument();
+		}
+	}
+
 	public void relayoutDocument() {
 		int loc = core.layout(mDocView.mCurrent, mLayoutW, mLayoutH, mLayoutEM);
+		/* Reopened for new reading settings: go back to the same text. */
+		if (mHasPendingBookmark) {
+			mHasPendingBookmark = false;
+			try {
+				loc = core.pageForBookmark(mPendingBookmark);
+			} catch (RuntimeException x) {
+				/* keep the page we have */
+			}
+		}
 		mFlatOutline = null;
+		mChapterPages = null;
 		mDocView.mHistory.clear();
 		mDocView.refresh();
 		mDocView.setDisplayedViewIndex(loc);
@@ -442,6 +505,7 @@ public class DocumentActivity extends Activity
 				mPageSlider.setMax((core.countPages() - 1) * mPageSliderRes);
 				if (!mPageSliderTracking)
 					mPageSlider.setProgress(i * mPageSliderRes);
+				updateChapterButtons(i);
 				super.onMoveToChild(i);
 			}
 
@@ -458,6 +522,19 @@ public class DocumentActivity extends Activity
 			@Override
 			protected void onSelectionStarted() {
 				startSelectionActionMode();
+			}
+
+			/* Keep the floating toolbar beside the selection, and out of
+			 * the way while a finger is still adjusting it. */
+			@Override
+			protected void onSelectionMoved(boolean dragging) {
+				ActionMode mode = mSelectionActionMode;
+				if (mode == null || Build.VERSION.SDK_INT < 23)
+					return;
+				/* Hidden while a finger is on it, and back the moment it
+				 * lifts: a hide otherwise lasts its full two seconds. */
+				mode.hide(dragging ? ViewConfiguration.getDefaultActionModeHideDuration() : 0);
+				mode.invalidateContentRect();
 			}
 
 			@Override
@@ -491,11 +568,17 @@ public class DocumentActivity extends Activity
 			@Override
 			protected void onTextFound(SearchTaskResult result) {
 				SearchTaskResult.set(result);
+				mSearchText.setTextColor(Color.WHITE);
 				// Ask the ReaderView to move to the resulting page
 				mDocView.setDisplayedViewIndex(result.pageNumber);
 				// Make the ReaderView act on the change to SearchTaskResult
 				// via overridden onChildSetup method.
 				mDocView.resetupChildren();
+			}
+
+			@Override
+			protected void onTextNotFound() {
+				mSearchText.setTextColor(0xffff8a80);
 			}
 		};
 
@@ -570,6 +653,19 @@ public class DocumentActivity extends Activity
 					SearchTaskResult.set(null);
 					mDocView.resetupChildren();
 				}
+
+				/* Search as the user types, once they pause, from the page
+				 * they were on when they started typing. */
+				mSearchText.setTextColor(Color.WHITE);
+				mHandler.removeCallbacks(mLiveSearch);
+				if (haveText) {
+					if (mLiveSearchOrigin < 0)
+						mLiveSearchOrigin = mDocView.getDisplayedViewIndex();
+					mHandler.postDelayed(mLiveSearch, LIVE_SEARCH_DELAY);
+				} else {
+					mSearchTask.stop();
+					mLiveSearchOrigin = -1;
+				}
 			}
 			public void beforeTextChanged(CharSequence s, int start, int count,
 					int after) {}
@@ -609,35 +705,17 @@ public class DocumentActivity extends Activity
 
 		if (core.isReflowable()) {
 			mLayoutButton.setVisibility(View.VISIBLE);
-			mLayoutPopupMenu = new PopupMenu(this, mLayoutButton);
-			mLayoutPopupMenu.getMenuInflater().inflate(R.menu.layout_menu, mLayoutPopupMenu.getMenu());
-			mLayoutPopupMenu.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
-				public boolean onMenuItemClick(MenuItem item) {
-					float oldLayoutEM = mLayoutEM;
-					int id = item.getItemId();
-					if (id == R.id.action_layout_default) mLayoutEM = DEFAULT_LAYOUT_EM;
-					else if (id == R.id.action_layout_6pt) mLayoutEM = 6;
-					else if (id == R.id.action_layout_7pt) mLayoutEM = 7;
-					else if (id == R.id.action_layout_8pt) mLayoutEM = 8;
-					else if (id == R.id.action_layout_9pt) mLayoutEM = 9;
-					else if (id == R.id.action_layout_10pt) mLayoutEM = 10;
-					else if (id == R.id.action_layout_11pt) mLayoutEM = 11;
-					else if (id == R.id.action_layout_12pt) mLayoutEM = 12;
-					else if (id == R.id.action_layout_13pt) mLayoutEM = 13;
-					else if (id == R.id.action_layout_14pt) mLayoutEM = 14;
-					else if (id == R.id.action_layout_15pt) mLayoutEM = 15;
-					else if (id == R.id.action_layout_16pt) mLayoutEM = 16;
-					if (oldLayoutEM != mLayoutEM)
-						relayoutDocument();
-					return true;
-				}
-			});
+			mLayoutButton.setContentDescription(getString(R.string.reading_settings));
 			mLayoutButton.setOnClickListener(new View.OnClickListener() {
 				public void onClick(View v) {
-					mLayoutPopupMenu.show();
+					ReadingSettingsDialog.show(DocumentActivity.this, mReading,
+						s -> { /* applied when the dialog closes */ },
+						() -> applyReadingSettings());
 				}
 			});
 		}
+
+		setupChapterButtons();
 
 		if (core.hasOutline()) {
 			mOutlineButton.setOnClickListener(new View.OnClickListener() {
@@ -917,6 +995,10 @@ public class DocumentActivity extends Activity
 		if (mTopBarMode == TopBarMode.Search) {
 			mTopBarMode = TopBarMode.Main;
 			hideKeyboard();
+			mHandler.removeCallbacks(mLiveSearch);
+			mLiveSearchOrigin = -1;
+			if (mSearchTask != null)
+				mSearchTask.stop();
 			mActionBar.setVisibility(View.VISIBLE);
 			mSearchBar.setVisibility(View.GONE);
 			SearchTaskResult.set(null);
@@ -924,6 +1006,75 @@ public class DocumentActivity extends Activity
 			// via overridden onChildSetup method.
 			mDocView.resetupChildren();
 		}
+	}
+
+	/* The pages the table of contents points at, in order and without
+	 * repeats: the stops for the previous/next chapter buttons. Worked out
+	 * when first needed, and again after a re-layout moves them. */
+	private int[] mChapterPages;
+	private ImageButton mPrevChapterButton;
+	private ImageButton mNextChapterButton;
+
+	private int[] chapterPages() {
+		if (mChapterPages == null) {
+			java.util.TreeSet<Integer> pages = new java.util.TreeSet<>();
+			try {
+				if (core != null && core.hasOutline())
+					for (OutlineActivity.Item item : core.getOutline())
+						if (item.page >= 0)
+							pages.add(item.page);
+			} catch (RuntimeException x) {
+				Log.e(APP, "Cannot read outline: " + x);
+			}
+			mChapterPages = new int[pages.size()];
+			int i = 0;
+			for (int page : pages)
+				mChapterPages[i++] = page;
+		}
+		return mChapterPages;
+	}
+
+	/* The page of the next chapter after this one, or of the start of this
+	 * chapter (or the one before, from its first page) going back; -1 if
+	 * there is none that way. */
+	private int chapterPage(int current, int direction) {
+		int[] pages = chapterPages();
+		if (direction > 0) {
+			for (int p : pages)
+				if (p > current)
+					return p;
+		} else {
+			for (int i = pages.length - 1; i >= 0; i--)
+				if (pages[i] < current)
+					return pages[i];
+		}
+		return -1;
+	}
+
+	private void setupChapterButtons() {
+		if (chapterPages().length == 0) {
+			mPrevChapterButton.setVisibility(View.GONE);
+			mNextChapterButton.setVisibility(View.GONE);
+			return;
+		}
+		mPrevChapterButton.setOnClickListener(v -> goToChapter(-1));
+		mNextChapterButton.setOnClickListener(v -> goToChapter(1));
+		updateChapterButtons(mDocView.getDisplayedViewIndex());
+	}
+
+	private void goToChapter(int direction) {
+		int page = chapterPage(mDocView.getDisplayedViewIndex(), direction);
+		if (page < 0)
+			return;
+		mDocView.pushHistory();
+		mDocView.setDisplayedViewIndex(page);
+	}
+
+	private void updateChapterButtons(int current) {
+		if (mPrevChapterButton == null || mPrevChapterButton.getVisibility() != View.VISIBLE)
+			return;
+		setButtonEnabled(mPrevChapterButton, chapterPage(current, -1) >= 0);
+		setButtonEnabled(mNextChapterButton, chapterPage(current, 1) >= 0);
 	}
 
 	private void updatePageNumView(int index) {
@@ -939,25 +1090,84 @@ public class DocumentActivity extends Activity
 		if (mSelectionActionMode != null)
 			return;
 		if (Build.VERSION.SDK_INT >= 23)
-			mSelectionActionMode = startActionMode(new FloatingSelectionCallback(),
+			mSelectionActionMode = mDocView.startActionMode(new FloatingSelectionCallback(),
 				ActionMode.TYPE_FLOATING);
 		else
 			mSelectionActionMode = startActionMode(new SelectionCallback());
 	}
 
+	/* The same choices Android's own text views offer for read-only text:
+	 * Copy, Select all, Share, Web search, and then whatever apps on the
+	 * phone can act on text (Translate and the like). The floating toolbar
+	 * shows the first few and puts the rest under its overflow button. */
 	private boolean createSelectionMenu(Menu menu) {
-		menu.add(0, COPY_MENU_ITEM, 0, R.string.copy)
+		menu.add(0, COPY_MENU_ITEM, 0, android.R.string.copy)
 			.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+		menu.add(0, SELECT_ALL_MENU_ITEM, 1, android.R.string.selectAll)
+			.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+		menu.add(0, SHARE_MENU_ITEM, 2, R.string.share_text)
+			.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+		menu.add(0, WEB_SEARCH_MENU_ITEM, 3, R.string.web_search)
+			.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+
+		if (Build.VERSION.SDK_INT >= 23) {
+			PackageManager pm = getPackageManager();
+			Intent query = new Intent(Intent.ACTION_PROCESS_TEXT).setType("text/plain");
+			int order = 10;
+			for (android.content.pm.ResolveInfo info : pm.queryIntentActivities(query, 0)) {
+				if (info.activityInfo == null || getPackageName().equals(info.activityInfo.packageName))
+					continue;
+				Intent intent = new Intent(Intent.ACTION_PROCESS_TEXT)
+					.setType("text/plain")
+					.setClassName(info.activityInfo.packageName, info.activityInfo.name)
+					.putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true);
+				menu.add(0, Menu.NONE, order++, info.loadLabel(pm))
+					.setIntent(intent)
+					.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+			}
+		}
 		return true;
 	}
 
 	private boolean selectionItemClicked(ActionMode mode, MenuItem item) {
-		if (item.getItemId() == COPY_MENU_ITEM) {
+		int id = item.getItemId();
+		if (id == COPY_MENU_ITEM) {
 			copySelectionToClipboard();
 			mode.finish();
 			return true;
 		}
-		return false;
+		if (id == SELECT_ALL_MENU_ITEM) {
+			mDocView.selectAll();
+			if (Build.VERSION.SDK_INT >= 23)
+				mode.invalidateContentRect();
+			return true;
+		}
+
+		String text = mDocView.getSelectedText();
+		if (text == null || text.length() == 0) {
+			Toast.makeText(this, R.string.no_text_selected, Toast.LENGTH_SHORT).show();
+			return true;
+		}
+		Intent intent = null;
+		if (id == SHARE_MENU_ITEM) {
+			intent = Intent.createChooser(new Intent(Intent.ACTION_SEND)
+				.setType("text/plain")
+				.putExtra(Intent.EXTRA_TEXT, text), null);
+		} else if (id == WEB_SEARCH_MENU_ITEM) {
+			intent = new Intent(Intent.ACTION_WEB_SEARCH)
+				.putExtra(android.app.SearchManager.QUERY, text);
+		} else if (item.getIntent() != null && Build.VERSION.SDK_INT >= 23) {
+			intent = new Intent(item.getIntent()).putExtra(Intent.EXTRA_PROCESS_TEXT, text);
+		}
+		if (intent == null)
+			return false;
+		try {
+			startActivity(intent);
+		} catch (Exception x) {
+			Toast.makeText(this, R.string.not_supported, Toast.LENGTH_SHORT).show();
+		}
+		mode.finish();
+		return true;
 	}
 
 	private void selectionModeDestroyed() {
@@ -993,6 +1203,23 @@ public class DocumentActivity extends Activity
 		}
 		public void onDestroyActionMode(ActionMode mode) {
 			selectionModeDestroyed();
+		}
+		/* Float the toolbar next to the selection rather than at the top
+		 * of the screen. */
+		@Override
+		public void onGetContentRect(ActionMode mode, View view, android.graphics.Rect outRect) {
+			android.graphics.Rect r = mDocView != null ? mDocView.getSelectionBounds() : null;
+			if (r == null) {
+				super.onGetContentRect(mode, view, outRect);
+				return;
+			}
+			/* Selection bounds are in the document view's coordinates;
+			 * the rect is wanted in those of the view given. */
+			int[] from = new int[2], to = new int[2];
+			mDocView.getLocationInWindow(from);
+			view.getLocationInWindow(to);
+			r.offset(from[0] - to[0], from[1] - to[1]);
+			outRect.set(r);
 		}
 	}
 
@@ -1156,6 +1383,8 @@ public class DocumentActivity extends Activity
 		mButtonsView = getLayoutInflater().inflate(R.layout.document_activity, null);
 		mDocNameView = (TextView)mButtonsView.findViewById(R.id.docNameText);
 		mPageSlider = (SeekBar)mButtonsView.findViewById(R.id.pageSlider);
+		mPrevChapterButton = (ImageButton)mButtonsView.findViewById(R.id.prevChapterButton);
+		mNextChapterButton = (ImageButton)mButtonsView.findViewById(R.id.nextChapterButton);
 		mPageNumberView = (TextView)mButtonsView.findViewById(R.id.pageNumber);
 		mSearchButton = (ImageButton)mButtonsView.findViewById(R.id.searchButton);
 		mOutlineButton = (ImageButton)mButtonsView.findViewById(R.id.outlineButton);
@@ -1192,7 +1421,21 @@ public class DocumentActivity extends Activity
 			imm.hideSoftInputFromWindow(mSearchText.getWindowToken(), 0);
 	}
 
+	private static final int LIVE_SEARCH_DELAY = 400;
+	private int mLiveSearchOrigin = -1;
+	private final Runnable mLiveSearch = new Runnable() {
+		public void run() {
+			if (mSearchTask == null || mLiveSearchOrigin < 0)
+				return;
+			String text = mSearchText.getText().toString();
+			if (text.length() > 0)
+				mSearchTask.go(text, 1, mLiveSearchOrigin, -1, true);
+		}
+	};
+
 	private void search(int direction) {
+		mHandler.removeCallbacks(mLiveSearch);
+		mLiveSearchOrigin = -1;
 		hideKeyboard();
 		int displayPage = mDocView.getDisplayedViewIndex();
 		SearchTaskResult r = SearchTaskResult.get();

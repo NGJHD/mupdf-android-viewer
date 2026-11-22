@@ -47,6 +47,9 @@ public abstract class SearchTask {
 
 	protected abstract void onTextFound(SearchTaskResult result);
 
+	/* A quiet search found nothing. */
+	protected void onTextNotFound() {}
+
 	public void stop() {
 		if (mSearchTask != null) {
 			mSearchTask.cancel(true);
@@ -55,6 +58,12 @@ public abstract class SearchTask {
 	}
 
 	public void go(final String text, int direction, int displayPage, int searchPage) {
+		go(text, direction, displayPage, searchPage, false);
+	}
+
+	/* quiet: searching as the user types, so no progress or "not found"
+	 * popups to get in the way of the keyboard. */
+	public void go(final String text, int direction, int displayPage, int searchPage, final boolean quiet) {
 		if (mCore == null)
 			return;
 		stop();
@@ -94,6 +103,8 @@ public abstract class SearchTask {
 				progressDialog.cancel();
 				if (result != null) {
 					onTextFound(result);
+				} else if (quiet) {
+					onTextNotFound();
 				} else {
 					mAlertBuilder.setTitle(SearchTaskResult.get() == null ? R.string.text_not_found : R.string.no_further_occurrences_found);
 					AlertDialog alert = mAlertBuilder.create();
@@ -116,6 +127,8 @@ public abstract class SearchTask {
 			@Override
 			protected void onPreExecute() {
 				super.onPreExecute();
+				if (quiet)
+					return;
 				mHandler.postDelayed(new Runnable() {
 					public void run() {
 						if (!progressDialog.isCancelled())

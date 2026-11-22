@@ -528,6 +528,34 @@ public class PageView extends ViewGroup {
 		return mSelectionQuads != null && mSelectionQuads.length > 0;
 	}
 
+	/* Select from the top left of the page to its bottom right. */
+	public boolean selectAll() {
+		if (mSize == null || mSourceScale == 0)
+			return false;
+		mSelectStart = new PointF(0, 0);
+		mSelectEnd = new PointF(mSize.x / mSourceScale, mSize.y / mSourceScale);
+		updateSelection();
+		return hasSelection();
+	}
+
+	/* The box around the selection in the parent's coordinates, so the
+	 * floating copy toolbar can sit next to it. Null without a selection. */
+	public Rect getSelectionBounds() {
+		if (!hasSelection() || mSize == null || getWidth() == 0)
+			return null;
+		float scale = mSourceScale*(float)getWidth()/(float)mSize.x;
+		float x0 = Float.MAX_VALUE, y0 = Float.MAX_VALUE;
+		float x1 = -Float.MAX_VALUE, y1 = -Float.MAX_VALUE;
+		for (Quad q : mSelectionQuads) {
+			x0 = Math.min(x0, Math.min(Math.min(q.ul_x, q.ll_x), Math.min(q.ur_x, q.lr_x)));
+			x1 = Math.max(x1, Math.max(Math.max(q.ul_x, q.ll_x), Math.max(q.ur_x, q.lr_x)));
+			y0 = Math.min(y0, Math.min(Math.min(q.ul_y, q.ll_y), Math.min(q.ur_y, q.lr_y)));
+			y1 = Math.max(y1, Math.max(Math.max(q.ul_y, q.ll_y), Math.max(q.ur_y, q.lr_y)));
+		}
+		return new Rect(getLeft() + (int)Math.floor(x0 * scale), getTop() + (int)Math.floor(y0 * scale),
+			getLeft() + (int)Math.ceil(x1 * scale), getTop() + (int)Math.ceil(y1 * scale));
+	}
+
 	public String getSelectedText() {
 		if (mSelectStart == null)
 			return null;

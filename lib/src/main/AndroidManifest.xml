@@ -3,6 +3,15 @@
 	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
 	<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
 		android:maxSdkVersion="28" />
+	<!-- Android 11+ only lists other apps we declare an interest in: here,
+	     the ones that act on selected text (Translate and the like), for the
+	     text selection toolbar. -->
+	<queries>
+		<intent>
+			<action android:name="android.intent.action.PROCESS_TEXT" />
+			<data android:mimeType="text/plain" />
+		</intent>
+	</queries>
 	<application>
 		<activity
 			android:name=".DocumentActivity"
@@ -30,6 +39,14 @@
 				<!-- list application/octet-stream to catch the ones android doesn't recognize -->
 				<data android:mimeType="application/octet-stream" />
 			</intent-filter>
+		</activity>
+		<!-- Not exported: DocumentActivity recognises Markdown, whatever type
+		     it arrives as, and hands it on to this. -->
+		<activity
+			android:name=".MarkdownActivity"
+			android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+			android:exported="false"
+			>
 		</activity>
 		<activity
 			android:name=".OutlineActivity"

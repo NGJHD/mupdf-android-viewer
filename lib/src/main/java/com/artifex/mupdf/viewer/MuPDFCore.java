@@ -98,6 +98,16 @@ public class MuPDFCore
 		return oldPage;
 	}
 
+	/* A position in a reflowed document that survives a change of layout,
+	 * and reopening the document. */
+	public synchronized long bookmark(int page) {
+		return doc.makeBookmark(doc.locationFromPageNumber(page));
+	}
+
+	public synchronized int pageForBookmark(long mark) {
+		return doc.pageNumberFromLocation(doc.findBookmark(mark));
+	}
+
 	private synchronized void gotoPage(int pageNum) {
 		/* TODO: page cache */
 		if (pageNum > pageCount-1)

@@ -39,13 +39,37 @@ public class OutlineActivity extends ListActivity
 		getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
 		Fullscreen.hideSystemBars(getWindow());
 
-		adapter = new ArrayAdapter<Item>(this, android.R.layout.simple_list_item_1);
+		setContentView(R.layout.outline_activity);
+		/* Back to the document without jumping anywhere. */
+		findViewById(R.id.outlineBack).setOnClickListener(v -> finish());
+
+		/* In the reading theme's colours, so it matches the page behind it. */
+		ReadingSettings reading = ReadingSettings.load(this);
+		final int bg = reading.backgroundColor(this);
+		final int fg = reading.textColor(this);
+		findViewById(R.id.outlineRoot).setBackgroundColor(bg);
+		getWindow().getDecorView().setBackgroundColor(bg);
+
+		adapter = new ArrayAdapter<Item>(this, android.R.layout.simple_list_item_1) {
+			@Override
+			public View getView(int position, View convertView, android.view.ViewGroup parent) {
+				View v = super.getView(position, convertView, parent);
+				((android.widget.TextView) v).setTextColor(fg);
+				return v;
+			}
+		};
 		setListAdapter(adapter);
+		ListView list = getListView();
+		list.setBackgroundColor(bg);
+		list.setCacheColorHint(bg);
+		/* A faint line in the text colour between entries. */
+		list.setDivider(new android.graphics.drawable.ColorDrawable((fg & 0x00ffffff) | 0x26000000));
+		list.setDividerHeight(1);
 
 		/* The bars are hidden, but a display cutout still eats into the screen.
-		 * Inset the list so no entry hides underneath it. */
+		 * Inset the screen so neither the bar nor an entry hides underneath it. */
 		if (Build.VERSION.SDK_INT >= 30) {
-			getListView().setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+			findViewById(R.id.outlineRoot).setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
 				public WindowInsets onApplyWindowInsets(View v, WindowInsets windowInsets)
 				{
 					Insets insets = windowInsets.getInsets(WindowInsets.Type.displayCutout());

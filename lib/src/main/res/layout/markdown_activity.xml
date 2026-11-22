@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+	android:id="@+id/mdRoot"
+	android:layout_width="match_parent"
+	android:layout_height="match_parent"
+	android:keepScreenOn="true"
+	>
+
+	<WebView
+		android:id="@+id/mdWebView"
+		android:layout_width="match_parent"
+		android:layout_height="match_parent"
+		/>
+
+	<ViewAnimator
+		android:id="@+id/mdSwitcher"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:layout_gravity="top"
+		android:background="@color/toolbar"
+		>
+
+		<LinearLayout
+			android:id="@+id/mdActionBar"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:orientation="horizontal"
+			>
+
+			<TextView
+				android:id="@+id/mdTitle"
+				android:layout_width="0dp"
+				android:layout_height="wrap_content"
+				android:layout_weight="1"
+				android:layout_gravity="center"
+				android:paddingLeft="16dp"
+				android:paddingRight="8dp"
+				android:singleLine="true"
+				android:ellipsize="end"
+				android:textSize="16sp"
+				android:textColor="@android:color/white"
+				/>
+
+			<ImageButton
+				android:id="@+id/mdShareButton"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:background="@drawable/button"
+				android:src="@drawable/ic_share_white_24dp"
+				android:contentDescription="@string/share_document"
+				/>
+
+			<ImageButton
+				android:id="@+id/mdSearchButton"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:background="@drawable/button"
+				android:src="@drawable/ic_search_white_24dp"
+				android:contentDescription="@string/search"
+				/>
+
+			<ImageButton
+				android:id="@+id/mdSettingsButton"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:background="@drawable/button"
+				android:src="@drawable/ic_format_size_white_24dp"
+				android:contentDescription="@string/reading_settings"
+				/>
+
+			<ImageButton
+				android:id="@+id/mdOutlineButton"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:background="@drawable/button"
+				android:src="@drawable/ic_toc_white_24dp"
+				android:contentDescription="@string/contents"
+				/>
+
+		</LinearLayout>
+
+		<LinearLayout
+			android:id="@+id/mdSearchBar"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:orientation="horizontal"
+			>
+
+			<ImageButton
+				android:id="@+id/mdSearchClose"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:background="@drawable/button"
+				android:src="@drawable/ic_close_white_24dp"
+				/>
+
+			<EditText
+				android:id="@+id/mdSearchText"
+				android:background="@android:color/transparent"
+				android:layout_width="0dp"
+				android:layout_height="wrap_content"
+				android:layout_weight="1"
+				android:layout_gravity="center"
+				android:inputType="text"
+				android:imeOptions="actionSearch"
+				android:singleLine="true"
+				android:hint="@string/search"
+				android:textSize="16sp"
+				android:textColor="@android:color/white"
+				android:textColorHighlight="#a0a0a0"
+				android:textColorHint="#a0a0a0"
+				/>
+
+			<TextView
+				android:id="@+id/mdSearchCount"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:layout_gravity="center"
+				android:paddingLeft="4dp"
+				android:paddingRight="4dp"
+				android:textSize="14sp"
+				android:textColor="#c0c0c0"
+				/>
+
+			<ImageButton
+				android:id="@+id/mdSearchBack"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:background="@drawable/button"
+				android:src="@drawable/ic_chevron_left_white_24dp"
+				/>
+
+			<ImageButton
+				android:id="@+id/mdSearchForward"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:background="@drawable/button"
+				android:src="@drawable/ic_chevron_right_white_24dp"
+				/>
+
+		</LinearLayout>
+
+	</ViewAnimator>
+
+	<!-- Position in the document, as for books and PDFs: heading jumps
+	     either side of a slider, and how far through above it. -->
+	<LinearLayout
+		android:id="@+id/mdLowerBar"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:layout_gravity="bottom"
+		android:orientation="vertical"
+		>
+
+		<TextView
+			android:id="@+id/mdPosition"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_gravity="center_horizontal"
+			android:layout_marginBottom="16dp"
+			android:background="@drawable/page_indicator"
+			android:textSize="16sp"
+			android:textColor="@android:color/white"
+			/>
+
+		<LinearLayout
+			android:id="@+id/mdBottomBar"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:orientation="horizontal"
+			android:gravity="center_vertical"
+			android:background="@color/toolbar"
+			>
+
+			<ImageButton
+				android:id="@+id/mdPrevHeading"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:background="@drawable/button"
+				android:src="@drawable/ic_chevron_left_white_24dp"
+				android:contentDescription="@string/previous_heading"
+				/>
+
+			<SeekBar
+				android:id="@+id/mdSlider"
+				android:layout_width="0dp"
+				android:layout_weight="1"
+				android:layout_height="54dp"
+				android:paddingLeft="16dp"
+				android:paddingRight="16dp"
+				android:paddingTop="0dp"
+				android:paddingBottom="0dp"
+				android:max="1000"
+				android:thumb="@drawable/seek_thumb"
+				android:progressDrawable="@drawable/seek_line"
+				/>
+
+			<ImageButton
+				android:id="@+id/mdNextHeading"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:background="@drawable/button"
+				android:src="@drawable/ic_chevron_right_white_24dp"
+				android:contentDescription="@string/next_heading"
+				/>
+
+		</LinearLayout>
+
+	</LinearLayout>
+
+</FrameLayout>

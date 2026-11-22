@@ -1,0 +1,239 @@
+/* Reading styles for the Markdown viewer. Themes and reading settings are
+ * CSS variables, set from reader.js. */
+
+:root {
+	--bg: #ffffff;
+	--fg: #1f2328;
+	--muted: #59636e;
+	--border: #d1d9e0;
+	--code-bg: #f6f8fa;
+	--link: #0969da;
+	--mark: #fff8c5;
+
+	--font: sans-serif;
+	--line-height: 1.6;
+	--para: 1em;
+	--margin: 16px;
+	--top-inset: 16px;
+	--bottom-inset: 48px;
+}
+
+.theme-sepia {
+	--bg: #f0dec6;
+	--fg: #5f4a30;
+	--muted: #7c6649;
+	--border: #d8c2a2;
+	--code-bg: #e8d3b6;
+	--link: #2b5a80;
+	--mark: #e6cc8f;
+}
+
+.theme-dark {
+	--bg: #0f1115;
+	--fg: #e3e6ea;
+	--muted: #9aa1a9;
+	--border: #343a42;
+	--code-bg: #191d23;
+	--link: #58a6ff;
+	--mark: #5a4a12;
+	color-scheme: dark;
+}
+
+html, body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+}
+
+body {
+	font-family: var(--font);
+	line-height: var(--line-height);
+	padding: var(--top-inset) var(--margin) var(--bottom-inset);
+	overflow-wrap: break-word;
+	-webkit-tap-highlight-color: transparent;
+}
+
+/* Bundled fonts, served by the app from assets/fonts. */
+@font-face { font-family: "Reader Roboto"; src: url("../fonts/Roboto-Regular.ttf"); }
+@font-face { font-family: "Reader Roboto"; font-style: italic; src: url("../fonts/Roboto-Italic.ttf"); }
+@font-face { font-family: "Reader Roboto"; font-weight: bold; src: url("../fonts/Roboto-Bold.ttf"); }
+@font-face { font-family: "Reader Roboto"; font-style: italic; font-weight: bold; src: url("../fonts/Roboto-BoldItalic.ttf"); }
+@font-face { font-family: "Reader Merriweather"; src: url("../fonts/Merriweather-Regular.ttf"); }
+@font-face { font-family: "Reader Merriweather"; font-style: italic; src: url("../fonts/Merriweather-Italic.ttf"); }
+@font-face { font-family: "Reader Merriweather"; font-weight: bold; src: url("../fonts/Merriweather-Bold.ttf"); }
+@font-face { font-family: "Reader Merriweather"; font-style: italic; font-weight: bold; src: url("../fonts/Merriweather-BoldItalic.ttf"); }
+@font-face { font-family: "Reader Literata"; src: url("../fonts/Literata-Regular.ttf"); }
+@font-face { font-family: "Reader Literata"; font-style: italic; src: url("../fonts/Literata-Italic.ttf"); }
+@font-face { font-family: "Reader Literata"; font-weight: bold; src: url("../fonts/Literata-Bold.ttf"); }
+@font-face { font-family: "Reader Literata"; font-style: italic; font-weight: bold; src: url("../fonts/Literata-BoldItalic.ttf"); }
+
+@font-face { font-family: "Reader Noto Serif"; src: url("../fonts/NotoSerif-Regular.ttf"); }
+@font-face { font-family: "Reader Noto Serif"; font-style: italic; src: url("../fonts/NotoSerif-Italic.ttf"); }
+@font-face { font-family: "Reader Noto Serif"; font-weight: bold; src: url("../fonts/NotoSerif-Bold.ttf"); }
+@font-face { font-family: "Reader Noto Serif"; font-style: italic; font-weight: bold; src: url("../fonts/NotoSerif-BoldItalic.ttf"); }
+/* Alice has only a regular face; the browser slants and emboldens it. */
+@font-face { font-family: "Reader Alice"; src: url("../fonts/Alice-Regular.ttf"); }
+
+.font-roboto { --font: "Reader Roboto", sans-serif; }
+.font-notoserif { --font: "Reader Noto Serif", serif; }
+.font-alice { --font: "Reader Alice", serif; }
+.font-merriweather { --font: "Reader Merriweather", serif; }
+.font-literata { --font: "Reader Literata", serif; }
+.font-mono { --font: monospace; }
+
+main { max-width: 52em; margin: 0 auto; }
+
+p, ul, ol, dl, blockquote, table, pre, details, .table-wrap, .mermaid-wrap, .katex-display {
+	margin-top: 0;
+	margin-bottom: var(--para);
+}
+
+h1, h2, h3, h4, h5, h6 {
+	line-height: 1.25;
+	margin: 1.4em 0 0.6em;
+	font-weight: 600;
+}
+h1 { font-size: 1.8em; padding-bottom: 0.25em; border-bottom: 1px solid var(--border); }
+h2 { font-size: 1.45em; padding-bottom: 0.2em; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.2em; }
+h4 { font-size: 1.05em; }
+h5 { font-size: 0.95em; }
+h6 { font-size: 0.9em; color: var(--muted); }
+main > :first-child { margin-top: 0; }
+
+a { color: var(--link); text-decoration: none; }
+a:active { text-decoration: underline; }
+
+strong { font-weight: 600; }
+mark { background: var(--mark); color: inherit; }
+
+ul, ol { padding-left: 1.6em; }
+li + li { margin-top: 0.2em; }
+li > ul, li > ol { margin-bottom: 0; margin-top: 0.2em; }
+li > p { margin-bottom: 0.4em; }
+
+.task-list-item { list-style: none; }
+.task-list-item input { margin: 0 0.4em 0 -1.3em; vertical-align: middle; }
+
+blockquote {
+	margin-left: 0;
+	margin-right: 0;
+	padding: 0 1em;
+	border-left: 4px solid var(--border);
+	color: var(--muted);
+}
+blockquote > :last-child { margin-bottom: 0; }
+
+hr {
+	height: 0;
+	border: 0;
+	border-top: 2px solid var(--border);
+	margin: 1.5em 0;
+}
+
+code, kbd, pre {
+	font-family: ui-monospace, "Roboto Mono", "Droid Sans Mono", monospace;
+}
+
+code {
+	font-size: 0.88em;
+	background: var(--code-bg);
+	padding: 0.12em 0.35em;
+	border-radius: 4px;
+}
+
+kbd {
+	font-size: 0.82em;
+	padding: 0.1em 0.4em;
+	border: 1px solid var(--border);
+	border-bottom-width: 2px;
+	border-radius: 4px;
+	background: var(--code-bg);
+}
+
+pre {
+	position: relative;
+	background: var(--code-bg);
+	border-radius: 6px;
+	padding: 12px 14px;
+	overflow-x: auto;
+	line-height: 1.45;
+	font-size: 0.86em;
+	-webkit-overflow-scrolling: touch;
+}
+pre code {
+	background: none;
+	padding: 0;
+	font-size: 1em;
+	border-radius: 0;
+	white-space: pre;
+}
+pre.has-copy { padding-top: 30px; }
+
+.copy-btn {
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	font: 12px sans-serif;
+	color: var(--muted);
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 3px 9px;
+}
+.copy-btn:active { color: var(--fg); }
+
+.code-lang {
+	position: absolute;
+	top: 7px;
+	left: 14px;
+	font: 11px sans-serif;
+	color: var(--muted);
+	text-transform: lowercase;
+}
+
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { border-collapse: collapse; margin-bottom: 0; }
+th, td { border: 1px solid var(--border); padding: 6px 10px; }
+th { font-weight: 600; background: var(--code-bg); }
+tr:nth-child(2n) td { background: color-mix(in srgb, var(--code-bg) 50%, transparent); }
+
+img { max-width: 100%; height: auto; }
+
+.img-missing {
+	display: inline-block;
+	border: 1px dashed var(--border);
+	border-radius: 4px;
+	padding: 4px 10px;
+	color: var(--muted);
+	font-size: 0.9em;
+}
+
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
+.katex { font-size: 1.1em; }
+pre.math-display { background: none; padding: 0; overflow: visible; font-size: 1em; }
+
+.mermaid-wrap { overflow-x: auto; text-align: center; }
+.mermaid-wrap svg { max-width: 100%; height: auto; }
+.mermaid-error { text-align: left; }
+
+details {
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	padding: 6px 12px;
+}
+details > summary { cursor: pointer; font-weight: 600; }
+details[open] > summary { margin-bottom: 0.5em; }
+
+dt { font-weight: 600; }
+dd { margin-left: 1.5em; margin-bottom: 0.5em; }
+
+.footnotes { font-size: 0.9em; color: var(--muted); }
+.footnotes-sep { margin-top: 2em; }
+.footnote-ref a, .footnote-backref { text-decoration: none; }
+
+.flash { animation: flash 1.2s ease-out; }
+@keyframes flash { from { background: var(--mark); } to { background: transparent; } }
+
+details.front-matter { font-size: 0.9em; color: var(--muted); }
+details.front-matter pre { margin: 0.5em 0 0; }

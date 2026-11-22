@@ -163,15 +163,26 @@
 			android:id="@+id/bottomBar"
 			android:layout_width="match_parent"
 			android:layout_height="wrap_content"
-			android:orientation="vertical"
+			android:orientation="horizontal"
+			android:gravity="center_vertical"
 			android:background="@color/toolbar"
 			android:layout_alignParentBottom="true"
 			android:layout_centerHorizontal="true"
 			>
 
+			<ImageButton
+				android:id="@+id/prevChapterButton"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:background="@drawable/button"
+				android:src="@drawable/ic_chevron_left_white_24dp"
+				android:contentDescription="@string/previous_chapter"
+				/>
+
 			<SeekBar
 				android:id="@+id/pageSlider"
-				android:layout_width="match_parent"
+				android:layout_width="0dp"
+				android:layout_weight="1"
 				android:layout_height="54dp"
 				android:layout_margin="0dp"
 				android:paddingLeft="16dp"
@@ -180,6 +191,15 @@
 				android:paddingBottom="0dp"
 				android:thumb="@drawable/seek_thumb"
 				android:progressDrawable="@drawable/seek_line"
+				/>
+
+			<ImageButton
+				android:id="@+id/nextChapterButton"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:background="@drawable/button"
+				android:src="@drawable/ic_chevron_right_white_24dp"
+				android:contentDescription="@string/next_chapter"
 				/>
 
 		</LinearLayout>

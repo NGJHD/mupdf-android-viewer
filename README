@@ -39,9 +39,30 @@ The viewer library has been reworked for comfortable reading on a phone:
   saves a copy of it to the phone's Downloads folder. Both are hidden for
   documents that were not opened from a content: uri.
 
-* Markdown files (.md) open too, laid out like an ebook so the font size
-  button applies. The bundled MuPDF already renders them; the viewer just
-  had to claim the text/markdown type and recognise the file name.
+* Markdown files (.md) open in their own viewer, built on a WebView with
+  bundled markdown-it, KaTeX, highlight.js and Mermaid (see
+  lib/src/main/assets/markdown/licenses). It handles GitHub style tables,
+  task lists and footnotes, math, highlighted code with copy buttons,
+  diagrams and front matter, and works fully offline. Raw HTML in a
+  document is sanitised and the page has no network or file access.
+  Pictures next to the document show once the folder it is in has been
+  granted.
+
+* Scrolling can be by page or continuous, switched from the top bar. In
+  continuous mode the view stops wherever a scroll or fling leaves it.
+
+* Reading settings for Markdown and reflowable books (EPUB, FB2, MOBI):
+  theme (Auto follows the system dark mode, Light, Dark, Sepia), font
+  (the document's own, or the bundled Roboto, Merriweather, Literata, Noto
+  Serif and Alice, see lib/src/main/assets/fonts), text size, line and
+  paragraph spacing and margins.
+
+* Buttons either side of the page slider jump to the previous and next
+  entry of the table of contents.
+
+* Links respond to taps near them as well as on them, and the text
+  selection toolbar floats next to the selection with the usual Android
+  choices (Copy, Select all, Share, Web search, Translate and so on).
 
 * The toolbars and the page slider are half again as tall as they were, and
   the slider is centred in its bar. Dragging the slider turns to that page

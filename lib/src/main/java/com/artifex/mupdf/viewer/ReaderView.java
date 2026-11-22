@@ -569,6 +569,7 @@ public class ReaderView
 		if (mSelecting) {
 			if (mSelectView != null)
 				mSelectView.extendSelection(e2.getX(), e2.getY());
+			onSelectionMoved(true);
 			return true;
 		}
 		if (!tapDisabled)
@@ -655,8 +656,10 @@ public class ReaderView
 			if (action == MotionEvent.ACTION_MOVE) {
 				if (mSelectView != null)
 					mSelectView.moveSelectionHandle(mDraggingHandle, event.getX(), event.getY());
+				onSelectionMoved(true);
 			} else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
 				mDraggingHandle = PageView.HANDLE_NONE;
+				onSelectionMoved(false);
 			}
 			return true;
 		}
@@ -666,6 +669,7 @@ public class ReaderView
 		if (mSelecting && action == MotionEvent.ACTION_MOVE) {
 			if (mSelectView != null)
 				mSelectView.extendSelection(event.getX(), event.getY());
+			onSelectionMoved(true);
 			return true;
 		}
 
@@ -677,7 +681,10 @@ public class ReaderView
 		}
 		if (action == MotionEvent.ACTION_UP) {
 			mUserInteracting = false;
-			mSelecting = false;
+			if (mSelecting) {
+				mSelecting = false;
+				onSelectionMoved(false);
+			}
 
 			View v = mChildViews.get(mCurrent);
 			if (v != null) {
@@ -715,6 +722,9 @@ public class ReaderView
 
 		try {
 			onLayout2(changed, left, top, right, bottom);
+			/* Scrolling carries the selection along; keep its toolbar with it. */
+			if (mSelectView != null && mSelectView.hasSelection())
+				onSelectionMoved(mUserInteracting || !mScroller.isFinished());
 		}
 		catch (java.lang.OutOfMemoryError e) {
 			System.out.println("Out of memory during layout");
@@ -1171,6 +1181,26 @@ public class ReaderView
 
 	protected void onTapMainDocArea() {}
 	protected void onSelectionStarted() {}
+	/* The selection changed or moved on screen; dragging while a finger is
+	 * still adjusting it. */
+	protected void onSelectionMoved(boolean dragging) {}
+
+	/* Select all the text on the page holding the selection (or, without
+	 * one, the current page). */
+	public void selectAll() {
+		PageView pageView = selectionView();
+		if (pageView == null)
+			pageView = (PageView)getDisplayedView();
+		if (pageView != null && pageView.selectAll())
+			mSelectView = pageView;
+		onSelectionMoved(false);
+	}
+
+	/* Where the selection is, in this view's coordinates, or null. */
+	public Rect getSelectionBounds() {
+		PageView pageView = selectionView();
+		return pageView != null ? pageView.getSelectionBounds() : null;
+	}
 	protected void onSelectionCleared() {}
 
 	/* The page under a screen point. In continuous mode a tap can land on a
